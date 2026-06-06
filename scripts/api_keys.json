@@ -1,0 +1,20 @@
+[
+  {
+    "appId": "admin",
+    "appName": "Admin",
+    "role": "admin",
+    "key": "dk_admin_4c42b5f89cfa4988b81f07d624c16fd8"
+  },
+  {
+    "appId": "app1",
+    "appName": "Meu App 1",
+    "role": "app",
+    "key": "dk_app_398621514c374c1bbaee5c20d65f2a83"
+  },
+  {
+    "appId": "app2",
+    "appName": "Meu App 2",
+    "role": "app",
+    "key": "dk_app_9afda75222e940538b598d9564b693b8"
+  }
+]

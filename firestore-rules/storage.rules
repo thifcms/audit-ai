@@ -1,0 +1,9 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Acesso somente via Firebase Admin SDK (Functions)
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

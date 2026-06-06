@@ -1,0 +1,6 @@
+{
+  "name": "Audit AI",
+  "description": "Plataforma de auditoria e reconciliação de documentos com IA. Compare relatórios de hospitais, calcule divergências de faturamento e treine modelos especializados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

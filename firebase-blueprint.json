@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "ApiKey": {
+      "title": "API Key",
+      "description": "Represents an API key for application access.",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "description": "The secret key string." },
+        "appId": { "type": "string", "description": "ID of the associated application." },
+        "active": { "type": "boolean", "description": "Whether the key is active." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." }
+      },
+      "required": ["key", "appId", "active", "createdAt"]
+    },
+    "RequestLog": {
+      "title": "Request Log",
+      "description": "Log of API requests made to the engine.",
+      "type": "object",
+      "properties": {
+        "appId": { "type": "string" },
+        "method": { "type": "string" },
+        "path": { "type": "string" },
+        "status": { "type": "integer" },
+        "duration": { "type": "integer" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["appId", "method", "path", "status", "duration", "timestamp"]
+    },
+    "Audit": {
+      "title": "Audit Record",
+      "description": "Record of a processing operation (read, calculate, audit).",
+      "type": "object",
+      "properties": {
+        "auditId": { "type": "string" },
+        "appId": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["auditId", "appId", "type", "createdAt"]
+    },
+    "KnowledgeBaseItem": {
+      "title": "Knowledge Base Item",
+      "description": "Represents learned neural patterns, regex settings, or global metadata.",
+      "type": "object",
+      "properties": {
+        "hospitalId": { "type": "string", "description": "The clinic or hospital identifier." },
+        "trainedAt": { "type": "string" },
+        "version": { "type": "string" },
+        "savedAt": { "type": "string", "format": "date-time" },
+        "note": { "type": "string" },
+        "totalLeituras": { "type": "integer" },
+        "acertos": { "type": "integer" },
+        "taxaAcerto": { "type": "number" },
+        "padroes": { "type": "object" }
+      }
+    }
+  },
+  "firestore": {
+    "/api_keys/{keyId}": {
+      "schema": "ApiKey",
+      "description": "Collection of API keys for authentication."
+    },
+    "/request_logs/{logId}": {
+      "schema": "RequestLog",
+      "description": "Collection of request logs."
+    },
+    "/audits/{auditId}": {
+      "schema": "Audit",
+      "description": "Collection of audit and processing results."
+    },
+    "/knowledge_base/{docId}": {
+      "schema": "KnowledgeBaseItem",
+      "description": "Collection of learned neural patterns and global patterns for faturamento."
+    }
+  }
+}

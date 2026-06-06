@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Bloqueio total por padrão — acesso somente via Functions (admin SDK)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // api_keys — somente leitura para apps autenticados via Firebase Auth (se usar)
+    match /api_keys/{keyId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // audits — somente via Functions
+    match /audits/{auditId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // knowledge_base — somente via Functions
+    match /knowledge_base/{appId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // request_logs — somente via Functions
+    match /request_logs/{logId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // training_history — somente via Functions
+    match /training_history/{id} {
+      allow read: if false;
+      allow write: if false;
+    }
+  }
+}
