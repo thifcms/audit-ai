@@ -8,17 +8,29 @@ const admin = require("firebase-admin");
 async function authMiddleware(req, res, next) {
   const path = req.path;
 
-  // Rotas públicas (health check)
-  if (path === "/health" || path === "/api/health") {
+  // Liberar imediatamente requisições de preflight de CORS (OPTIONS)
+  if (req.method === "OPTIONS") {
+    return next();
+  }
+
+  // Rotas públicas (health check e manifesto de autodescoberta)
+  if (
+    path === "/health" || 
+    path === "/api/health" || 
+    path === "/routes" || 
+    path === "/api/routes" || 
+    path === "/manifest" || 
+    path === "/api/manifest"
+  ) {
     return next();
   }
 
   const apiKey = req.headers["x-api-key"];
-
+  
   if (!apiKey) {
     return res.status(401).json({
       success: false,
-      error: "x-api-key ausente no header.",
+      error: "O cabeçalho x-api-key é obrigatório para conectar à Audit IA.",
       code: "MISSING_API_KEY"
     });
   }

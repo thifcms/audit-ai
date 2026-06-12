@@ -1,0 +1,19 @@
+# Project Instructions
+
+## Restricted Configurations
+The following configurations are **LOCKED** and must not be modified under ANY circumstances unless the user is explicitly and directly asked for permission first:
+
+1. **AI Connection & Routing**: 
+   - The logic in `server.ts` for handling Gemini API calls, including the retry mechanism (`geminiRetryService`), the formatting of contents, and the selection of models.
+   - Any API keys handling or proxying logic.
+   - Model versions exactly as configured (e.g. `gemini-flash-latest`, `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite`, etc.) must not be updated or "fixed".
+
+2. **Extraction & Label Reading**:
+   - The extraction logic for medical documents and labels (both `/api/gemini/extract` and `/api/public/extract` routes).
+   - System prompts, schemas, and processing workflows used for AI extraction.
+   - The configuration in `src/services/ai.ts` (or similar) that manages these calls.
+
+3. **Diagnostics & Testing**:
+   - The diagnostic routing and status checking logic in `ApiTester.tsx` and its corresponding server endpoints.
+
+**WARNING: DO NOT ATTEMPT TO OPTIMIZE, REFACTOR, OR FIX THESE CORE SYSTEMS WITHOUT EXPLICIT USER CONSENT. THESE CONFIGURATIONS ARE FUNCTIONING AS EXPECTED AND ANY MODIFICATIONS MAY BREAK THEM.**

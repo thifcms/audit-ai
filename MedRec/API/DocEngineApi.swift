@@ -2,13 +2,25 @@ import Foundation
 
 /// Modelo de dados para os itens da auditoria
 public struct AuditItem: Codable {
-    public let auditId: String
-    public let status: String
-    public let nomePaciente: String
-    public let numeroAtendimento: String
-    public let valorCobrado: Double
-    public let valorPago: Double
-    public let diferenca: Double
+    public let auditId: String?
+    public let id: String?
+    public let status: String?
+    public let nomePaciente: String?
+    public let numeroAtendimento: String?
+    public let valorCobrado: Double?
+    public let valorPago: Double?
+    public let diferenca: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case auditId
+        case id
+        case status
+        case nomePaciente
+        case numeroAtendimento
+        case valorCobrado
+        case valorPago
+        case diferenca
+    }
 }
 
 /// Erros específicos da API DocEngine
@@ -22,49 +34,58 @@ public enum DocEngineError: Error {
 
 /// Cliente da API DocEngine para integração com a plataforma MedRec.
 public class DocEngineApi {
-    private let baseUrl = "https://us-central1-spherical-leaf-vr5vm.cloudfunctions.net/api"
-    private let apiKey = "dk_app_398621514c374c1bbaee5c20d65f2a83"
+    private let baseUrl = "https://audit-ai-572028997371.us-east1.run.app"
+    private let apiKey = "dk_admin_4c42b5f89cfa4988b81f07d624c16fd8"
     private let session = URLSession.shared
 
     public init() {}
 
     /// Constrói a requisição base com a API Key configurada
     private func createRequest(for endpoint: String, method: String) -> URLRequest? {
-        guard let url = URL(string: "\(baseUrl)\(endpoint)") else { return nil }
+        guard let url = URL(string: "\(baseUrl)/api\(endpoint)") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         return request
     }
 
-    /// Envia um documento para o DocEngine extrair as informações.
-    /// Endpoint: /read
+    /// Envia um documento para o DocEngine extrair as informações utilizando a nova arquitetura Gemini.
+    /// Endpoint: /gemini/extract
     /// - Parameters:
     ///   - fileUrl: URL local do arquivo a ser processado
     ///   - completion: Callback com o resultado da extração
     public func readDocument(fileUrl: URL, completion: @escaping (Result<[String: Any], DocEngineError>) -> Void) {
-        guard var request = createRequest(for: "/read", method: "POST") else {
+        guard var request = createRequest(for: "/gemini/extract", method: "POST") else {
             completion(.failure(.invalidURL))
             return
         }
 
-        let boundary = "Boundary-\(UUID().uuidString)"
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        var body = Data()
-        let filename = fileUrl.lastPathComponent
         guard let fileData = try? Data(contentsOf: fileUrl) else {
             completion(.failure(.noData))
             return
         }
 
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-        body.append(fileData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        let base64String = fileData.base64EncodedString()
+        let filename = fileUrl.lastPathComponent
+        
+        let ext = fileUrl.pathExtension.lowercased()
+        let mimeType = ext == "pdf" ? "application/pdf" : "image/jpeg"
 
-        request.httpBody = body
+        let payload: [String: Any] = [
+            "fileBase64": base64String,
+            "filename": filename,
+            "mimeType": mimeType,
+            "expectedType": "etiqueta_hospitalar",
+            "modelStrategy": "rotation"
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        } catch {
+            completion(.failure(.serializationError))
+            return
+        }
 
         let task = session.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -83,7 +104,13 @@ public class DocEngineApi {
             }
 
             do {
-                if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
+                if var json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
+                    // Achata o JSON se os dados estiverem aninhados em 'data'
+                    if let nestedData = json["data"] as? [String: Any] {
+                        for (key, value) in nestedData {
+                            json[key] = value
+                        }
+                    }
                     completion(.success(json))
                 } else {
                     completion(.failure(.serializationError))
@@ -135,7 +162,7 @@ public class DocEngineApi {
 
             do {
                 if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                   let resultsDict = json["results"] {
+                   let resultsDict = json["allResults"] {
                     
                     let resultsData = try JSONSerialization.data(withJSONObject: resultsDict, options: [])
                     let items = try JSONDecoder().decode([AuditItem].self, from: resultsData)
@@ -177,7 +204,7 @@ public class DocEngineApi {
 
             do {
                 if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                   let historyDict = json["history"] {
+                   let historyDict = json["audits"] {
                     
                     let historyData = try JSONSerialization.data(withJSONObject: historyDict, options: [])
                     let items = try JSONDecoder().decode([AuditItem].self, from: historyData)

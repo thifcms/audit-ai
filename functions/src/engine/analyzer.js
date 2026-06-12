@@ -1,6 +1,6 @@
 const admin  = require("firebase-admin");
 const fetch = require("node-fetch");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleGenAI } = require("@google/genai");
 const { BUILTIN_KNOWLEDGE }  = require("./knowledge");
 const { testNeuralPatterns, incrementNeuralAccess, saveNeuralPattern } = require("./neural");
 
@@ -8,9 +8,16 @@ let genAI = null;
 
 function getGenAI() {
   if (!genAI) {
-    const apiKey = process.env.V_Gemini_API_Key;
-    if (!apiKey) throw new Error("V_Gemini_API_Key não configurada nas variáveis de ambiente.");
-    genAI = new GoogleGenerativeAI(apiKey);
+    const apiKey = process.env.V2_Gemini_API_Key || process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("V2_Gemini_API_Key não configurada nas variáveis de ambiente.");
+    genAI = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
   }
   return genAI;
 }
@@ -83,18 +90,18 @@ async function callGroq(systemPrompt, userPrompt, modelName = "llama-3.3-70b-ver
  */
 async function callAIWithFallback(systemPrompt, userPrompt, jsonMode = true, inlineData = null) {
   let modelsToTry = [
-    { provider: "gemini", model: "gemini-2.0-flash" },
-    { provider: "gemini", model: "gemini-1.5-flash" },
-    { provider: "gemini", model: "gemini-1.5-pro" },
+    { provider: "gemini", model: "gemini-flash-latest" },
+    { provider: "gemini", model: "gemini-3.1-flash-lite" },
+    { provider: "gemini", model: "gemini-3.5-flash" },
     { provider: "groq",   model: "llama-3.3-70b-versatile" }
   ];
 
   // Se houver imagem (inlineData), a prioridade é Gemini principal para processamento nativo de imagem ou Groq multimodal
   if (inlineData) {
     modelsToTry = [
-      { provider: "gemini", model: "gemini-2.0-flash" },
-      { provider: "gemini", model: "gemini-1.5-flash" },
-      { provider: "gemini", model: "gemini-1.5-pro" },
+      { provider: "gemini", model: "gemini-flash-latest" },
+      { provider: "gemini", model: "gemini-3.1-flash-lite" },
+      { provider: "gemini", model: "gemini-3.5-flash" },
       { provider: "groq",   model: "llama-3.2-11b-vision-preview" }
     ];
   }
@@ -104,24 +111,24 @@ async function callAIWithFallback(systemPrompt, userPrompt, jsonMode = true, inl
       if (conf.provider === "gemini") {
         console.log(`[Engine] Tentando modelo Gemini: ${conf.model}...`);
         const ai = getGenAI();
-        const model = ai.getGenerativeModel({ model: conf.model });
 
         const parts = [{ text: userPrompt }];
         if (inlineData) {
           parts.push({ inlineData });
         }
 
-        const result = await model.generateContent({
-          systemInstruction: systemPrompt,
+        const result = await ai.models.generateContent({
+          model: conf.model,
           contents: [{ role: "user", parts }],
-          generationConfig: {
+          config: {
+            systemInstruction: systemPrompt,
             temperature: 0.1,
             responseMimeType: jsonMode ? "application/json" : "text/plain",
             maxOutputTokens: 4096
           }
         });
 
-        const text = result.response.text();
+        const text = result.text;
         console.log(`[Engine] Sucesso com ${conf.model}.`);
         return { text, provider: conf.provider, model: conf.model };
       } else if (conf.provider === "groq") {

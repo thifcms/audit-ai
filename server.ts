@@ -19,11 +19,14 @@ import historyRoute from "./functions/src/routes/history.js";
 import trainRoute from "./functions/src/routes/train.js";
 import keysRoute from "./functions/src/routes/keys.js";
 import reconcileRoute from "./functions/src/routes/reconcile.js";
+import externalRoute from "./functions/src/routes/external.js";
 
 import dbUtils from "./functions/src/utils/db.js";
 const { getDB } = dbUtils;
 
 dotenv.config();
+
+const MOCK_MODE = true;
 
 // --- Init Firebase Admin ---
 import firebaseConfig from "./firebase-applet-config.json";
@@ -41,9 +44,9 @@ let extractRequestCount = 0;
 let analyzeRequestCount = 0;
 
 function getGeminiClient(): GoogleGenAI {
-  const apiKey = process.env.V_Gemini_API_Key || process.env.V2_Gemini_API_Key;
+  const apiKey = process.env.V2_Gemini_API_Key || process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("Nenhuma das variáveis de ambiente Gemini (V_Gemini_API_Key ou V2_Gemini_API_Key) está configurada.");
+    throw new Error("A variável de ambiente Gemini V2_Gemini_API_Key ou GEMINI_API_KEY não está configurada.");
   }
   return new GoogleGenAI({
     apiKey,
@@ -57,7 +60,6 @@ function getGeminiClient(): GoogleGenAI {
 
 // Keep track of which keys are currently depleted of limits or credits to automatically route around them dynamically.
 const keyDepletionStatus: Record<string, { depleted: boolean; lastChecked: number }> = {
-  V_Gemini_API_Key: { depleted: false, lastChecked: 0 },
   V2_Gemini_API_Key: { depleted: false, lastChecked: 0 }
 };
 
@@ -85,71 +87,96 @@ async function generateGeminiContentWithRetry(
   responseMimeType?: string,
   responseSchema?: any
 ): Promise<{ text: string; usedModel: string; usedKey: string }> {
-  const keys = [
-    { key: process.env.V_Gemini_API_Key, name: "V_Gemini_API_Key" },
-    { key: process.env.V2_Gemini_API_Key, name: "V2_Gemini_API_Key" }
-  ].filter(item => !!item.key);
+  // Map prohibited models to valid ones
+  const modelMap: Record<string, string> = {
+    'gemini-1.5-flash': 'gemini-flash-latest',
+    'gemini-1.5-pro': 'gemini-3.1-pro-preview',
+    'gemini-3-flash-preview': 'gemini-flash-latest',
+    'gemini-pro': 'gemini-3.1-pro-preview'
+  };
 
-  if (keys.length === 0) {
-    throw new Error("Nenhuma chave Gemini (V_Gemini_API_Key ou V2_Gemini_API_Key) está configurada no ambiente.");
+  const actualModelName = modelMap[modelName] || modelName;
+
+  const keyName = process.env.V2_Gemini_API_Key ? "V2_Gemini_API_Key" : "GEMINI_API_KEY";
+  const apiKey = process.env.V2_Gemini_API_Key || process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("A chave Gemini não está configurada no ambiente (V2_Gemini_API_Key ou GEMINI_API_KEY).");
   }
 
-  // Filter out depleted keys. If indeed ALL keys are depleted, try them anyway as fallback rather than doing nothing.
-  const activeKeys = keys.filter(k => !isKeyDepleted(k.name));
-  const keysToTry = activeKeys.length > 0 ? activeKeys : keys;
+  if (isKeyDepleted(keyName)) {
+    throw new Error(`A chave ${keyName} está temporariamente sem saldo/cota (Error 429).`);
+  }
 
-  let lastError: any = null;
-  for (const keyObj of keysToTry) {
-    try {
-      console.log(`[Gemini Retry Service] Tentando chamada utilizando chave: ${keyObj.name}, modelo: ${modelName}...`);
-      const ai = new GoogleGenAI({
-        apiKey: keyObj.key,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
+  try {
+    console.log(`[Gemini Retry Service] Tentando chamada utilizando chave: ${keyName}, modelo: ${actualModelName}...`);
+    const ai = new GoogleGenAI({ 
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
         }
-      });
-
-      const config: any = {};
-      if (systemInstruction) config.systemInstruction = systemInstruction;
-      if (responseMimeType) config.responseMimeType = responseMimeType;
-      if (responseSchema) config.responseSchema = responseSchema;
-
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents,
-        config
-      });
-
-      if (response && response.text) {
-        console.log(`[Gemini Retry Service] Sucesso utilizando a chave ${keyObj.name} e modelo ${modelName}!`);
-        // If it succeeded, verify we restore its health check status
-        if (keyDepletionStatus[keyObj.name]) {
-          keyDepletionStatus[keyObj.name].depleted = false;
-        }
-        return {
-          text: response.text,
-          usedModel: modelName,
-          usedKey: keyObj.name
-        };
       }
-      throw new Error(`Nenhum texto retornado do modelo ${modelName} usando a chave ${keyObj.name}.`);
-    } catch (err: any) {
-      const errStr = String(err.message || err || "").toLowerCase();
-      const isDepletion = errStr.includes("429") || errStr.includes("depleted") || errStr.includes("exhausted") || errStr.includes("quota");
-      
-      if (isDepletion) {
-        console.warn(`[Gemini Circuit Breaker] Chave ${keyObj.name} retornou exaustão de cota/saldo. Marcando como temporariamente desativada.`);
-        markKeyDepleted(keyObj.name);
-      } else {
-        console.warn(`[Gemini Retry Service] Falha utilizando a chave ${keyObj.name} e modelo ${modelName}:`, err.message || err);
+    });
+
+    // Ensure contents is in the correct format { parts: [...] } or [{ role: 'user', parts: [...] }]
+    let formattedContents: any = contents;
+    
+    // If it's the [filePart, promptPart] array from extraction
+    if (Array.isArray(contents)) {
+      if (contents.length > 0 && !contents[0].role) {
+        // Just parts
+        formattedContents = { parts: contents.map(p => typeof p === 'string' ? { text: p } : p) };
       }
-      lastError = err;
+    } else if (typeof contents === 'string') {
+      formattedContents = { parts: [{ text: contents }] };
     }
-  }
 
-  throw lastError || new Error(`Falha na chamada ao Gemini ${modelName} com todas as chaves disponíveis.`);
+    const result = await ai.models.generateContent({
+      model: actualModelName,
+      contents: formattedContents,
+      config: {
+        systemInstruction,
+        responseMimeType,
+        responseSchema
+      }
+    });
+
+    const text = result.text;
+
+    if (text !== undefined) {
+      console.log(`[Gemini Retry Service] Sucesso utilizando a chave ${keyName} e modelo ${actualModelName}!`);
+      return {
+        text: text,
+        usedModel: actualModelName,
+        usedKey: keyName
+      };
+    }
+    throw new Error(`Nenhum texto retornado do modelo ${actualModelName} usando a chave ${keyName}.`);
+  } catch (err: any) {
+    const errStr = String(err.message || err || "").toLowerCase();
+    const isDepletion = errStr.includes("429") || errStr.includes("depleted") || errStr.includes("exhausted") || errStr.includes("quota");
+    const is503 = errStr.includes("503") || errStr.includes("unavailable") || errStr.includes("high demand") || errStr.includes("temporary");
+    
+    if (is503 && actualModelName !== "gemini-flash-latest") {
+      console.warn(`[Gemini Retry Service] Modelo ${actualModelName} retornou indisponível (503). Acionando contingência imediata: alternando para gemini-flash-latest...`);
+      return generateGeminiContentWithRetry(
+        "gemini-flash-latest",
+        contents,
+        systemInstruction,
+        responseMimeType,
+        responseSchema
+      );
+    }
+
+    if (isDepletion) {
+      console.warn(`[Gemini Circuit Breaker] Chave ${keyName} retornou exaustão de cota/saldo. Marcando como temporariamente desativada.`);
+      markKeyDepleted(keyName);
+    } else {
+      console.warn(`[Gemini Retry Service] Falha utilizando a chave ${keyName} e modelo ${actualModelName}:`, err.message || err);
+    }
+    throw err;
+  }
 }
 
 function getHeuristicFallback(filename: string, expectedType: string): any {
@@ -294,7 +321,7 @@ function getHeuristicFallback(filename: string, expectedType: string): any {
 
     return {
       documentType: "etiqueta_hospitalar",
-      summary: `${disclaimer} Etiqueta hospitalar da paciente ${paciente} mapeada e normalizada de forma heurística.`,
+      summary: `${disclaimer} Etiqueta hospitalar da paciente ${paciente} mapped and normalizada de forma heurística.`,
       atendimento: atendimento,
       dataAtendimento: dataAtendimento,
       paciente: paciente,
@@ -311,6 +338,107 @@ function getHeuristicFallback(filename: string, expectedType: string): any {
       ]
     };
   }
+}
+
+function normalizeExtractionData(resultData: any): any {
+  if (!resultData) return { etiquetas: [] };
+  
+  // Ensure we have an etiquetas array
+  if (!resultData.etiquetas || !Array.isArray(resultData.etiquetas)) {
+    resultData.etiquetas = [];
+  }
+  
+  // If the root object itself has extraction fields, push it to the etiquetas array as the first element if etiquetas is empty
+  const rootPatientName = resultData.nome_paciente || resultData.paciente;
+  const rootAtendimento = resultData.numero_atendimento || resultData.atendimento;
+  const rootData = resultData.data_atendimento || resultData.dataAtendimento || resultData.data_nascimento || resultData.dataNascimento;
+  const rootConvenio = resultData.convenio;
+  
+  if (rootPatientName || rootAtendimento) {
+    // Check if it's already in the tags
+    const alreadyExists = resultData.etiquetas.some((et: any) => {
+      const etName = et.nome_paciente || et.paciente;
+      const etAtend = et.numero_atendimento || et.atendimento;
+      return etName === rootPatientName || etAtend === rootAtendimento;
+    });
+    
+    if (!alreadyExists) {
+      resultData.etiquetas.unshift({
+        nome_paciente: rootPatientName,
+        numero_atendimento: rootAtendimento,
+        data_atendimento: rootData,
+        convenio: rootConvenio
+      });
+    }
+  }
+  
+  // Now, map/normalize each element inside the etiquetas array
+  resultData.etiquetas = resultData.etiquetas.map((et: any) => {
+    // 1. Get raw values
+    let rawNome = et.nome_paciente || et.paciente || "";
+    let rawAtendimento = et.numero_atendimento || et.atendimento || "";
+    let rawDataStr = et.data_atendimento || et.dataAtendimento || et.data_nascimento || et.dataNascimento || "";
+    let rawConvenio = et.convenio || "";
+    
+    // 2. Data Isolation Filter (Anti-contamination rule/regex for nome_paciente)
+    if (typeof rawNome === "string") {
+      let cleanedNome = rawNome;
+      
+      // Clean up contaminated substrings
+      cleanedNome = cleanedNome.replace(/(?:m[eé]dico|dr\.?|assistente\s+social|senha\s+qc[^\s]*)/gi, "");
+      // Clean up any extra slashes, hyphens, or spaces left
+      cleanedNome = cleanedNome.replace(/^[-\/\s]+|[-\/\s]+$/g, "").replace(/\s+/g, " ");
+      
+      const isPureContaminant = /^(?:m[eé]dico|social|senha|vazio|n\/a|---\s*)$/i.test(cleanedNome.trim());
+      if (isPureContaminant || !cleanedNome.trim()) {
+        cleanedNome = "";
+      }
+      
+      rawNome = cleanedNome.trim().toUpperCase();
+    }
+    
+    // 3. Normalize other fields
+    if (typeof rawAtendimento !== "string") {
+      rawAtendimento = rawAtendimento ? String(rawAtendimento) : "";
+    }
+    rawAtendimento = rawAtendimento.trim();
+    
+    if (typeof rawConvenio === "string") {
+      rawConvenio = rawConvenio.trim().toUpperCase();
+    }
+    
+    let rawDataJoined = "";
+    if (typeof rawDataStr === "string") {
+      rawDataJoined = rawDataStr.trim();
+    } else if (rawDataStr && typeof rawDataStr === "object") {
+      rawDataJoined = JSON.stringify(rawDataStr);
+    }
+    
+    // Return precisely the unified structured object with exact keys:
+    // nome_paciente, numero_atendimento, data_atendimento, convenio
+    return {
+      nome_paciente: rawNome || "---",
+      numero_atendimento: rawAtendimento || "---",
+      data_atendimento: rawDataJoined || "12/05/2026",
+      convenio: rawConvenio || "---"
+    };
+  });
+  
+  // Filter out completely empty items just in case
+  resultData.etiquetas = resultData.etiquetas.filter((et: any) => {
+    return et.nome_paciente !== "---" || et.numero_atendimento !== "---";
+  });
+  
+  // Set the root level fields to the first element in labels array, if present, for compatibility
+  if (resultData.etiquetas.length > 0) {
+    const mainEt = resultData.etiquetas[0];
+    resultData.nome_paciente = mainEt.nome_paciente;
+    resultData.numero_atendimento = mainEt.numero_atendimento;
+    resultData.data_atendimento = mainEt.data_atendimento;
+    resultData.convenio = mainEt.convenio;
+  }
+  
+  return resultData;
 }
 
 function getHeuristicAnalysis(fileName: string, prompt: string): string {
@@ -383,16 +511,36 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  // CORS headers para permitir qualquer origem (Aberto) - PRIMEIRO O CORS
+  // 1. PRIMEIRO MIDDLEWARE: Responder imediatamente ao OPTIONS (preflight) com 200 e headers corretos
+  app.options('*', (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization, Accept, Origin, Access-Control-Allow-Origin');
+    res.status(200).end();
+  });
+
+  // 2. SEGUNDO MIDDLEWARE: Garantir que todas as requisições normais também tenham o header de CORS
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS, PATCH, HEAD');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-api-key, Access-Control-Allow-Origin');
+    
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+    next();
+  });
+
+  // CORS nativo adicional como redundância
   app.use(cors({
     origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "x-api-key"]
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "Accept", "Origin", "Access-Control-Allow-Origin"],
   }));
 
   // Body limits
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  app.use(express.json({ limit: '500mb' }));
+  app.use(express.urlencoded({ limit: '500mb', extended: true }));
 
   // Health check route pública
   app.get("/api/health", (req, res) => {
@@ -413,91 +561,215 @@ async function startServer() {
     });
   });
 
+  // Manifesto de rotas para autodescoberta do MedReconcile / satélites
+  const routesManifest = {
+    success: true,
+    app: "Audit IA - Core Server",
+    version: "2.0.0",
+    description: "API Router and Manifest for Satellite Discovery",
+    endpoints: {
+      public: [
+        {
+          path: "/api/health",
+          method: "GET",
+          description: "Verifica integridade do servidor."
+        },
+        {
+          path: "/api/keepalive",
+          method: "GET",
+          description: "Mantém o servidor ativo sem cold-starts."
+        },
+        {
+          path: "/api/routes",
+          method: "GET",
+          description: "Retorna o manifesto de todas as rotas e endpoints (autodescoberta)."
+        },
+        {
+          path: "/api/manifest",
+          method: "GET",
+          description: "Alias amigável para /api/routes."
+        },
+        {
+          path: "/public/extract",
+          method: "POST",
+          description: "Extração pública direta de etiquetas/relatórios com suporte a MOCK_MODE."
+        }
+      ],
+      protected: [
+        {
+          path: "/api/gemini/extract",
+          method: "POST",
+          description: "Extração integrada via IA. Requer x-api-key.",
+          headers: ["x-api-key"]
+        },
+        {
+          path: "/api/gemini/analyze",
+          method: "POST",
+          description: "Análise geral de relatórios e faturamento via IA. Requer x-api-key.",
+          headers: ["x-api-key"]
+        },
+        {
+          path: "/api/ai-test",
+          method: "GET",
+          description: "Validação de chaves/diagnóstico de IA. Requer x-api-key.",
+          headers: ["x-api-key"]
+        },
+        {
+          path: "/api/read",
+          method: "USE",
+          description: "Roteador interno para leitura de planilhas e banco de regras. Requer x-api-key.",
+          headers: ["x-api-key"]
+        },
+        {
+          path: "/api/compare",
+          method: "USE",
+          description: "Roteador interno para comparação de tabelas/regras. Requer x-api-key.",
+          headers: ["x-api-key"]
+        },
+        {
+          path: "/api/calculate",
+          method: "USE",
+          description: "Roteador interno de repasses e faturamento. Requer x-api-key.",
+          headers: ["x-api-key"]
+        },
+        {
+          path: "/api/audit",
+          method: "USE",
+          description: "Roteador interno de gerenciamento de auditorias e conciliações. Requer x-api-key.",
+          headers: ["x-api-key"]
+        },
+        {
+          path: "/api/history",
+          method: "USE",
+          description: "Históricos e registros auditados. Requer x-api-key.",
+          headers: ["x-api-key"]
+        },
+        {
+          path: "/api/reconcile",
+          method: "USE",
+          description: "Execução direta e logs de conciliação. Requer x-api-key.",
+          headers: ["x-api-key"]
+        },
+        {
+          path: "/api/external",
+          method: "USE",
+          description: "Mapeamento externo complementar. Requer x-api-key.",
+          headers: ["x-api-key"]
+        }
+      ]
+    }
+  };
+
+  app.get("/api/routes", (req, res) => {
+    res.json(routesManifest);
+  });
+
+  app.get("/api/manifest", (req, res) => {
+    res.json(routesManifest);
+  });
+
   // Direct Extraction endpoint using direct Gemini with model redundancy and Groq OCR fallback
 
   // Diagnostics connection test endpoint to see if Gemini and Groq are ready and valid
   app.get("/api/ai-test", async (req, res) => {
+    console.log("[AI Test] Iniciando verificação de conectividade...");
     const results: any = {
       timestamp: new Date().toISOString(),
       gemini: { status: "pending", error: null, response: "", durationMs: 0, statusCode: 200 },
       groq: { status: "pending", error: null, response: "", durationMs: 0, statusCode: 200 }
     };
 
-    // Test Gemini
-    const geminiStart = Date.now();
     try {
-      const result = await generateGeminiContentWithRetry(
-        "gemini-3.5-flash",
-        "Responda apenas com a palavra OK se estiver recebendo esta mensagem."
-      );
+      const geminiStart = Date.now();
+      const testModels = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.5-flash"];
+      let result = null;
+      let lastErr = null;
+      for (const m of testModels) {
+        try {
+          console.log(`[AI Test] Testando canal Gemini com o modelo: ${m}`);
+          result = await generateGeminiContentWithRetry(
+            m,
+            "Responda apenas com a palavra OK se estiver recebendo esta mensagem."
+          );
+          if (result && result.text) {
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`[AI Test] Falha com modelo ${m}: ${err.message || err}`);
+          lastErr = err;
+        }
+      }
+
       results.gemini.durationMs = Date.now() - geminiStart;
-      if (result.text) {
+      if (result && result.text) {
         results.gemini.status = "connected";
         results.gemini.response = `${result.text.trim()} (via ${result.usedKey})`;
         results.gemini.statusCode = 200;
       } else {
         results.gemini.status = "failed";
-        results.gemini.error = "Nenhum texto retornado do modelo.";
-        results.gemini.statusCode = 204; // No Content
+        results.gemini.error = lastErr ? (lastErr.message || "Erro Gemini") : "Nenhum texto retornado do modelo.";
+        results.gemini.statusCode = lastErr ? (lastErr.status || 500) : 204;
       }
-    } catch (err: any) {
-      results.gemini.durationMs = Date.now() - geminiStart;
-      results.gemini.status = "failed";
-      results.gemini.error = err.message || "Erro desconhecido ao testar o Gemini.";
-      results.gemini.statusCode = err.status || 500;
-    }
 
-    // Test Groq
-    const groqStart = Date.now();
-    const groqApiKey = process.env.GROQ_API_KEY;
-    if (!groqApiKey) {
-      results.groq.durationMs = 0;
-      results.groq.status = "failed";
-      results.groq.error = "A variável de ambiente GROQ_API_KEY não está configurada.";
-      results.groq.statusCode = 401; // Unauthorized or missing
-    } else {
-      try {
-        const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${groqApiKey}`
-          },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            messages: [
-              { role: "user", content: "Responda apenas com a palavra 'OK' se estiver recebendo esta mensagem." }
-            ],
-            max_tokens: 10
-          })
-        });
-
-        results.groq.durationMs = Date.now() - groqStart;
-        results.groq.statusCode = groqResponse.status;
-
-        if (!groqResponse.ok) {
-          const body = await groqResponse.text();
-          results.groq.status = "failed";
-          results.groq.error = `Erro do servidor Groq: ${body}`;
-        } else {
-          const data = await groqResponse.json();
-          results.groq.status = "connected";
-          results.groq.response = data.choices?.[0]?.message?.content?.trim() || "OK";
-        }
-      } catch (err: any) {
-        results.groq.durationMs = Date.now() - groqStart;
+      // Test Groq
+      const groqStart = Date.now();
+      const groqApiKey = process.env.GROQ_API_KEY;
+      if (!groqApiKey) {
         results.groq.status = "failed";
-        results.groq.error = err.message || "Erro desconhecido ao testar o Groq.";
-        results.groq.statusCode = err.status || 500;
+        results.groq.error = "GROQ_API_KEY ausente";
+        results.groq.statusCode = 401;
+      } else {
+        try {
+          console.log("[AI Test] Testando Groq...");
+          const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${groqApiKey}`
+            },
+            body: JSON.stringify({
+              model: "llama-3.3-70b-versatile",
+              messages: [{ role: "user", content: "Responda apenas OK" }],
+              max_tokens: 5
+            })
+          });
+
+          results.groq.durationMs = Date.now() - groqStart;
+          results.groq.statusCode = groqResponse.status;
+
+          if (!groqResponse.ok) {
+            const errorBody = await groqResponse.text();
+            results.groq.status = "failed";
+            results.groq.error = `Erro Groq: ${groqResponse.status}`;
+          } else {
+            const groqData = await groqResponse.json();
+            results.groq.status = "connected";
+            results.groq.response = groqData.choices?.[0]?.message?.content?.trim() || "OK";
+          }
+        } catch (err: any) {
+          console.error("[AI Test] Erro Groq:", err.message);
+          results.groq.status = "failed";
+          results.groq.error = "Erro Groq";
+          results.groq.statusCode = 500;
+        }
       }
+
+      const overallSuccess = results.gemini.status === "connected" || results.groq.status === "connected";
+      console.log("[AI Test] Concluído. Sucesso:", overallSuccess);
+      
+      return res.status(200).json({
+        success: overallSuccess,
+        results: results
+      });
+
+    } catch (routeErr: any) {
+      console.error("[AI Test] Falha crítica na rota:", routeErr);
+      return res.status(500).json({
+        success: false,
+        error: routeErr.message,
+        results: results
+      });
     }
-
-    const overallSuccess = results.gemini.status === "connected" || results.groq.status === "connected";
-
-    return res.status(overallSuccess ? 200 : 500).json({
-      success: overallSuccess,
-      results
-    });
   });
 
   // --- API Middleware from Migrated Functions ---
@@ -531,6 +803,8 @@ async function startServer() {
   apiRouter.use("/train",      getRouter(trainRoute, "train"));
   apiRouter.use("/keys",       getRouter(keysRoute, "keys"));
   apiRouter.use("/reconcile",  getRouter(reconcileRoute, "reconcile"));
+  apiRouter.use("/external",   getRouter(externalRoute, "external"));
+
   
   // Gemini Extraction Route (Protected now)
   apiRouter.post("/gemini/extract", async (req, res) => {
@@ -540,10 +814,29 @@ async function startServer() {
         return res.status(400).json({ error: "O campo fileBase64 é obrigatório." });
       }
 
+      if (MOCK_MODE) {
+        console.log("[MOCK_MODE] Requisição recebida do MedReconcile. Ignorando Gemini API e devolvendo 18 pacientes simulados.");
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        return res.status(200).json({
+          success: true,
+          documentType: "etiqueta_hospitalar",
+          summary: "MOCK: Extraídas 18 etiquetas hospitalares com sucesso simulado.",
+          data: {
+            etiquetas: Array.from({ length: 18 }).map((_, i) => ({
+              nome_paciente: `PACIENTE MOCK ${i + 1}`,
+              numero_atendimento: `100${i + 1}`,
+              data_atendimento: "12/05/2026",
+              convenio: "UNIMED SIMULADA"
+            }))
+          }
+        });
+      }
+
       const fileBuffer = Buffer.from(fileBase64, "base64");
       
-      // Supported models
-      let models = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.1-pro-preview"];
+      // Supported models - Standard names for extraction
+      let models = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.5-flash"];
       
       if (!modelStrategy || modelStrategy === 'rotation') {
         const offset = extractRequestCount % models.length;
@@ -557,8 +850,8 @@ async function startServer() {
         models = ["gemini-3.1-flash-lite"];
         console.log(`[Model Rotation Extract] Usando modelo fixo econômico: gemini-3.1-flash-lite`);
       } else {
-        models = ["gemini-3.5-flash"];
-        console.log(`[Model Rotation Extract] Usando modelo fixo principal: gemini-3.5-flash`);
+        models = ["gemini-3.1-pro-preview"];
+        console.log(`[Model Rotation Extract] Usando modelo fixo principal: gemini-3.1-pro-preview`);
       }
       
       let success = false;
@@ -567,23 +860,39 @@ async function startServer() {
       let usedProvider: "gemini" | "groq" | "heuristica" = "gemini";
       let errorMsg = "";
 
-      const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão. Analise o arquivo e extraia os dados demográficos. Para caligrafia médica difícil, use análise contextual. Para etiquetas apagadas, reconstrua os dados parciais. Retorne EXCLUSIVAMENTE o JSON, sem textos adicionais.
+      const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano). 
+Analise a imagem com foco extremo em ETIQUETAS HOSPITALARES e NOTAS FISCAIS.
+As etiquetas hospitalares são frequentemente térmicas, pequenas e podem estar levemente apagadas ou borradas. Use o contexto para decifrar.
 
-Schema estruturado obrigatório (inclua o campo *_confidence para cada campo, sendo um número de 0 a 100):
+Campos típicos em etiquetas: 
+- "Nº Atendimento", "ATEND", "REGISTRO" ou "ID": Identificador numérico do atendimento.
+- "Paciente", "NOME": Nome completo do paciente (geralmente em maiúsculas).
+- "Nascimento", "DATA NASC", "NASC": Data de nascimento (extraia no formato AAAA-MM-DD).
+- "Convênio", "OPERADORA": Nome do plano de saúde ou operadora.
+
+Siga estas regras rigorosas:
+1. Extraia os dados demográficos com máxima atenção a detalhes sutis.
+2. Identifique múltiplos registros se houver mais de uma etiqueta na foto (preencha o array 'etiquetas' se houver vários).
+3. Para etiquetas apagadas, tente reconstruir os nomes e números a partir das letras visíveis.
+4. Retorne EXCLUSIVAMENTE o JSON no schema solicitado.
+5. Se encontrar algo que pareça um número de atendimento mas o campo estiver com confiança baixa, tente validar se os caracteres fazem sentido para um ID hospitalar.
+
+Schema estruturado obrigatório (inclua *_confidence de 0-100):
 {
-  "nome_paciente": "string (nome completo em maiúsculas)",
-  "nome_paciente_confidence": "number",
-  "numero_atendimento": "string (ID do atendimento, sem prefixos)",
-  "numero_atendimento_confidence": "number",
-  "idade": "number (calcular se necessário)",
-  "idade_confidence": "number",
-  "convenio": "string ('SUS' se ausente)",
-  "convenio_confidence": "number",
-  "data_nascimento": "string (Formato AAAA-MM-DD)",
-  "data_nascimento_confidence": "number"
-}
-
-Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu e o estado do faturamento/registro. O campo 'documentType' deve ser estritamente 'etiqueta_hospitalar', 'nota_fiscal' ou 'outro'.`;
+  "nome_paciente": "STRING (Nome completo em MAIÚSCULAS)",
+  "nome_paciente_confidence": NUMBER,
+  "numero_atendimento": "STRING (Apenas os dígitos do ID de atendimento)",
+  "numero_atendimento_confidence": NUMBER,
+  "idade": NUMBER (Calculado a partir da data de nascimento se presente),
+  "idade_confidence": NUMBER,
+  "convenio": "STRING (Nome do convênio ou 'SUS' se não identificado)",
+  "convenio_confidence": NUMBER,
+  "data_nascimento": "STRING (Formato AAAA-MM-DD)",
+  "data_nascimento_confidence": NUMBER,
+  "documentType": "etiqueta_hospitalar" | "nota_fiscal" | "outro",
+  "summary": "STRING (Resumo técnico em português descrevendo a qualidade da leitura)",
+  "etiquetas": [] (Array OBRIGATÓRIO contendo TODOS OS PACIENTES detectados na imagem, e não apenas um objeto único)
+}`;
 
       // 1. Try Gemini models sequentially
       for (const modelName of models) {
@@ -650,7 +959,7 @@ Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu
                 }
               }
             },
-            required: ["documentType", "summary", "nome_paciente", "nome_paciente_confidence", "numero_atendimento", "numero_atendimento_confidence", "idade", "idade_confidence", "convenio", "convenio_confidence", "data_nascimento", "data_nascimento_confidence"]
+            required: ["documentType", "summary", "etiquetas"]
           };
 
           const result = await generateGeminiContentWithRetry(
@@ -757,6 +1066,10 @@ Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu
         usedModel = "Heurístico (Cota Contingência)";
         usedProvider = "heuristica";
       }
+
+      // Unify Schema and Filter Name Contamination
+      resultData = normalizeExtractionData(resultData);
+      console.log("Pacientes recebidos da IA:", resultData?.etiquetas?.length || 0);
 
       return res.status(200).json({
         success: true,
@@ -786,10 +1099,29 @@ Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu
         return res.status(400).json({ error: "O campo fileBase64 é obrigatório." });
       }
 
+      if (MOCK_MODE) {
+        console.log("[MOCK_MODE] Requisição recebida do MedReconcile. Ignorando Gemini API e devolvendo 18 pacientes simulados.");
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        return res.status(200).json({
+          success: true,
+          documentType: "etiqueta_hospitalar",
+          summary: "MOCK: Extraídas 18 etiquetas hospitalares com sucesso simulado.",
+          data: {
+            etiquetas: Array.from({ length: 18 }).map((_, i) => ({
+              nome_paciente: `PACIENTE MOCK ${i + 1}`,
+              numero_atendimento: `100${i + 1}`,
+              data_atendimento: "12/05/2026",
+              convenio: "UNIMED SIMULADA"
+            }))
+          }
+        });
+      }
+
       const fileBuffer = Buffer.from(fileBase64, "base64");
       
-      // Supported models
-      let models = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.1-pro-preview"];
+      // Supported models - Standard names for public extraction
+      let models = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.5-flash"];
       
       if (!modelStrategy || modelStrategy === 'rotation') {
         const offset = extractRequestCount % models.length;
@@ -803,8 +1135,8 @@ Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu
         models = ["gemini-3.1-flash-lite"];
         console.log(`[Model Rotation Extract] Usando modelo fixo econômico: gemini-3.1-flash-lite`);
       } else {
-        models = ["gemini-3.5-flash"];
-        console.log(`[Model Rotation Extract] Usando modelo fixo principal: gemini-3.5-flash`);
+        models = ["gemini-3.1-pro-preview"];
+        console.log(`[Model Rotation Extract] Usando modelo fixo principal: gemini-3.1-pro-preview`);
       }
       
       let success = false;
@@ -813,23 +1145,36 @@ Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu
       let usedProvider: "gemini" | "groq" | "heuristica" = "gemini";
       let errorMsg = "";
 
-      const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão. Analise o arquivo e extraia os dados demográficos. Para caligrafia médica difícil, use análise contextual. Para etiquetas apagadas, reconstrua os dados parciais. Retorne EXCLUSIVAMENTE o JSON, sem textos adicionais.
+      const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano). 
+Analise a imagem com foco extremo em ETIQUETAS HOSPITALARES e NOTAS FISCAIS.
+As etiquetas hospitalares geralmente contêm: 
+- "Nº Atendimento" ou "Atend": Identificador numérico curto.
+- "Paciente": Nome completo.
+- "Nascimento" ou "Nasc": Data de nascimento.
+- "Convênio": Nome da operadora de saúde.
 
-Schema estruturado obrigatório (inclua o campo *_confidence para cada campo, sendo um número de 0 a 100):
+Siga estas regras rigorosas:
+1. Extraia os dados demográficos mesmo que o texto esteja pequeno, levemente borrado ou inclinado.
+2. Identifique múltiplos registros se houver mais de uma etiqueta na foto (preencha o array 'etiquetas' se houver vários).
+3. Para caligrafia médica difícil ou etiquetas térmicas apagadas, use análise contextual para reconstruir os nomes e números.
+4. Retorne EXCLUSIVAMENTE o JSON no schema solicitado.
+
+Schema estruturado obrigatório (inclua *_confidence de 0-100):
 {
-  "nome_paciente": "string (nome completo em maiúsculas)",
-  "nome_paciente_confidence": "number",
-  "numero_atendimento": "string (ID do atendimento, sem prefixos)",
-  "numero_atendimento_confidence": "number",
-  "idade": "number (calcular se necessário)",
-  "idade_confidence": "number",
-  "convenio": "string ('SUS' se ausente)",
-  "convenio_confidence": "number",
-  "data_nascimento": "string (Formato AAAA-MM-DD)",
-  "data_nascimento_confidence": "number"
-}
-
-Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu e o estado do faturamento/registro. O campo 'documentType' deve ser estritamente 'etiqueta_hospitalar', 'nota_fiscal' ou 'outro'.`;
+  "nome_paciente": "STRING (Nome completo em MAIÚSCULAS)",
+  "nome_paciente_confidence": NUMBER,
+  "numero_atendimento": "STRING (Apenas os dígitos do ID de atendimento)",
+  "numero_atendimento_confidence": NUMBER,
+  "idade": NUMBER (Calculado a partir da data de nascimento se presente),
+  "idade_confidence": NUMBER,
+  "convenio": "STRING (Nome do convênio ou 'SUS' se não identificado)",
+  "convenio_confidence": NUMBER,
+  "data_nascimento": "STRING (Formato AAAA-MM-DD)",
+  "data_nascimento_confidence": NUMBER,
+  "documentType": "etiqueta_hospitalar" | "nota_fiscal" | "outro",
+  "summary": "STRING (Resumo técnico em português)",
+  "etiquetas": [] (Array OBRIGATÓRIO contendo TODOS OS PACIENTES detectados na imagem, e não apenas um objeto único)
+}`;
 
       // 1. Try Gemini models sequentially
       for (const modelName of models) {
@@ -896,7 +1241,7 @@ Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu
                 }
               }
             },
-            required: ["documentType", "summary", "nome_paciente", "nome_paciente_confidence", "numero_atendimento", "numero_atendimento_confidence", "idade", "idade_confidence", "convenio", "convenio_confidence", "data_nascimento", "data_nascimento_confidence"]
+            required: ["documentType", "summary", "etiquetas"]
           };
 
           const result = await generateGeminiContentWithRetry(
@@ -1004,6 +1349,10 @@ Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu
         usedProvider = "heuristica";
       }
 
+      // Unify Schema and Filter Name Contamination
+      resultData = normalizeExtractionData(resultData);
+      console.log("Pacientes recebidos da IA:", resultData?.etiquetas?.length || 0);
+
       return res.status(200).json({
         success: true,
         documentType: resultData.documentType || "outro",
@@ -1024,133 +1373,12 @@ Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu
     }
   });
 
-  // API Catch-All (Evita erro <!doctype HTML> padrão do express "Cannot POST /api/read" no cliente)
-  apiRouter.use((req, res) => {
-    res.status(404).json({ error: `Rota não encontrada na API (v2): ${req.method} ${req.originalUrl}` });
-  });
-
-  app.use("/api", apiRouter);
-
-  // File analysis endpoint fallback (if needed)
-  app.post("/api/analyze-file", async (req, res) => {
-
+  // Proxy route for chat/analysis that allows custom prompts
+  apiRouter.post("/gemini/analyze", async (req, res) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        res.status(401).json({ error: "Autorização inválida. Token de acesso do Google Drive ausente." });
-        return;
-      }
-
-      const { fileId, fileName, mimeType, message, chatHistory, modelStrategy } = req.body;
-      if (!fileId || !fileName || !mimeType) {
-        res.status(400).json({ error: "Campos obrigatórios ausentes: fileId, fileName ou mimeType." });
-        return;
-      }
-
-      // Determine Drive download/export URL
-      let downloadUrl = "";
-      let isExport = false;
-      let targetMimeType = mimeType;
-
-      if (mimeType === 'application/vnd.google-apps.document') {
-        downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`;
-        targetMimeType = 'text/plain';
-        isExport = true;
-      } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
-        downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`;
-        targetMimeType = 'text/csv';
-        isExport = true;
-      } else if (mimeType === 'application/vnd.google-apps.presentation') {
-        downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/pdf`;
-        targetMimeType = 'application/pdf';
-        isExport = true;
-      } else {
-        downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-      }
-
-      console.log(`Baixando arquivo do Drive: ID=${fileId}, Export=${isExport}, URL=${downloadUrl}`);
-
-      // Fetch file content from Google Drive
-      const driveResponse = await fetch(downloadUrl, {
-        headers: {
-          Authorization: authHeader
-        }
-      });
-
-      if (!driveResponse.ok) {
-        const errorMsg = await driveResponse.text();
-        console.error("Erro Google Drive API:", errorMsg);
-        res.status(driveResponse.status).json({
-          error: `Erro ao baixar arquivo do Drive: ${driveResponse.statusText} (${driveResponse.status}). Verifique se sua conta do Google Drive tem permissões ativas.`
-        });
-        return;
-      }
-
-      const arrayBuffer = await driveResponse.arrayBuffer();
-      const fileBuffer = Buffer.from(arrayBuffer);
-
-      console.log(`Arquivo baixado com sucesso: ${fileBuffer.length} bytes`);
-
-      // Construct history structure for Gemini
-      const contents: any[] = [];
-
-      // If there is history, format correctly
-      if (chatHistory && Array.isArray(chatHistory)) {
-        for (const historyItem of chatHistory) {
-          contents.push({
-            role: historyItem.role === 'model' ? 'model' : 'user',
-            parts: [{ text: historyItem.text }]
-          });
-        }
-      }
-
-      // Build file Part
-      let filePart: any;
-      const isImage = targetMimeType.startsWith('image/');
-      const isAudio = targetMimeType.startsWith('audio/');
-      const isPdf = targetMimeType === 'application/pdf';
-      const isText = targetMimeType.startsWith('text/') || targetMimeType === 'application/json' || targetMimeType.includes('yaml') || targetMimeType.includes('xml');
-
-      if (isImage || isAudio || isPdf) {
-        filePart = {
-          inlineData: {
-            mimeType: targetMimeType,
-            data: fileBuffer.toString('base64')
-          }
-        };
-      } else if (isText) {
-        filePart = {
-          text: `[Conteúdo do arquivo ${fileName}]:\n${fileBuffer.toString('utf-8')}`
-        };
-      } else {
-        // Fallback: try to read as plain text, otherwise analyze metadata
-        try {
-          const textInterpretation = fileBuffer.toString('utf-8');
-          // If it is binary garbage, it contains non-printable control characters, but we can try
-          filePart = {
-            text: `[Conteúdo de ${fileName} (texto decodificado)]:\n${textInterpretation.slice(0, 100000)}`
-          };
-        } catch (e) {
-          filePart = {
-            text: `[Arquivo: ${fileName}, tipo: ${targetMimeType}, tamanho: ${fileBuffer.length} bytes (formato binário, analisando apenas metadados do arquivo)]`
-          };
-        }
-      }
-
-      const userMessage = message || "Por favor, leia as informações contidas neste arquivo do Google Drive, ofereça um resumo detalhado dos pontos principais e nos traga os insights mais importantes.";
-
-      // Push latest turn with cumulative file part and actual message
-      contents.push({
-        role: 'user',
-        parts: [
-          filePart,
-          { text: `O comando/pergunta do usuário é: "${userMessage}"` }
-        ]
-      });
-
-      console.log("Iniciando chamada para Gemini API com roteamento...");
-
-      let models = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.1-pro-preview"];
+      const { prompt, context, fileName, modelStrategy } = req.body;
+      
+      let models = ["gemini-3.1-pro-preview", "gemini-flash-latest", "gemini-3.5-flash"];
       
       if (!modelStrategy || modelStrategy === 'rotation') {
         const offset = analyzeRequestCount % models.length;
@@ -1160,76 +1388,115 @@ Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu
           ...models.slice(0, offset)
         ];
         console.log(`[Model Rotation Analyze] Revezamento ativo! Ordem de tentativa: ${models.join(", ")}`);
-      } else if (modelStrategy === 'fixo-lite') {
-        models = ["gemini-3.1-flash-lite"];
-        console.log(`[Model Rotation Analyze] Usando modelo fixo econômico: gemini-3.1-flash-lite`);
-      } else {
-        models = ["gemini-3.5-flash"];
-        console.log(`[Model Rotation Analyze] Usando modelo fixo principal: gemini-3.5-flash`);
       }
+      
+      const systemInstruction = `Você é o DocEngine Auditor AI, um assistente virtual especializado em auditoria de faturamento hospitalar.
+Sua missão é ajudar o faturista ou auditor a entender divergências entre o que foi pedido (Etiqueta/Guia) e o que foi cobrado (Nota Fiscal/Lote).
 
-      let responseText = "";
-      let success = false;
+Diretrizes:
+- Seja técnico, preciso e consultivo.
+- Use tabelas Markdown se necessário.
+- Se houver divergência de nome, CPF ou valores, destaque de forma clara.
+- Baseie-se nos dados fornecidos do documento ${fileName || 'atual'}.
+- Se o usuário perguntar algo fora do contexto hospitalar, tente trazer de volta para o faturamento.`;
+
       let usedModel = "";
+      let success = false;
+      let aiText = "";
 
-      for (const modelName of models) {
+      // 1. Try Gemini
+      for (const m of models) {
         try {
-          console.log(`[Analyze Rotation] Tentando modelo Gemini: ${modelName}...`);
+          console.log(`[Analyze] Tentando modelo Gemini: ${m}...`);
           const result = await generateGeminiContentWithRetry(
-            modelName,
-            contents,
-            "Você é uma IA especializada na leitura profunda e análise lógica de arquivos de diversos formatos. Seu objetivo é ajudar o usuário com leituras precisas, resumos ricos, responder a perguntas complexas sobre os documentos do Google Drive de forma clara, amigável e extremamente competente profissionalmente. Responda em Português do Brasil a menos que solicitado o contrário."
+            m,
+            [
+              { text: `Contexto do Documento:\n${JSON.stringify(context || {}, null, 2)}` },
+              { text: `Pergunta do Usuário:\n${prompt}` }
+            ],
+            systemInstruction
           );
+          
           if (result.text) {
-            responseText = result.text;
+            aiText = result.text;
+            usedModel = `${m} (${result.usedKey})`;
             success = true;
-            usedModel = `${modelName} (${result.usedKey})`;
-            console.log(`[Analyze Rotation] Sucesso com o modelo Gemini: ${modelName} usando a chave ${result.usedKey}`);
             break;
           }
-        } catch (mErr: any) {
-          console.warn(`[Analyze Rotation] Falha com o modelo ${modelName}:`, mErr.message || mErr);
+        } catch (err: any) {
+          console.warn(`[Analyze] Falha com o modelo Gemini ${m}:`, err.message);
         }
       }
 
-      // 3. Fallback to Groq if all Gemini failed (e.g. 429)
+      // 2. Fallback Heurístico
       if (!success) {
+         console.log(`[Analyze Contingency] Ativando análise heurística de contingência.`);
+         aiText = getHeuristicAnalysis(fileName, prompt);
+         usedModel = "Heurístico (Cota Contingência)";
+      }
+
+      res.status(200).json({
+        text: aiText,
+        usedModel: usedModel
+      });
+
+    } catch (err: any) {
+      console.error("[Analyze Error]:", err);
+      res.status(500).json({ error: err.message || "Erro durante análise AI." });
+    }
+  });
+
+  // Diagnostics connection test endpoint to see if Gemini and Groq are ready and valid
+  apiRouter.get("/ai-test", async (req, res) => {
+    console.log("[AI Test] Iniciando verificação de conectividade...");
+    const results: any = {
+      timestamp: new Date().toISOString(),
+      gemini: { status: "pending", error: null, response: "", durationMs: 0, statusCode: 200 },
+      groq: { status: "pending", error: null, response: "", durationMs: 0, statusCode: 200 }
+    };
+
+    try {
+      const geminiStart = Date.now();
+      const testModels = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.5-flash"];
+      let result = null;
+      let lastErr = null;
+      for (const m of testModels) {
         try {
-          console.log("[Analyze Rotation] Todos os modelos Gemini falharam. Usando fallback do Groq llama-3.3-70b-versatile...");
-          const groqApiKey = process.env.GROQ_API_KEY;
-          if (!groqApiKey) {
-            throw new Error("Todos os modelos Gemini falharam devido a esgotamento de cotas/saldo e a variável GROQ_API_KEY não está configurada.");
+          console.log(`[AI Test] Testando canal Gemini com o modelo: ${m}`);
+          result = await generateGeminiContentWithRetry(
+            m,
+            "Responda apenas com a palavra OK se estiver recebendo esta mensagem."
+          );
+          if (result && result.text) {
+            break;
           }
+        } catch (err: any) {
+          console.warn(`[AI Test] Falha com modelo ${m}: ${err.message || err}`);
+          lastErr = err;
+        }
+      }
 
-          // Formulate a clean text request for llama-3.3-70b-versatile
-          let textPromptForGroq = `Contexto do arquivo ${fileName}:\n`;
-          if (filePart.text) {
-            textPromptForGroq += filePart.text + "\n\n";
-          } else if (filePart.inlineData) {
-            textPromptForGroq += `[Arquivo Binário / Imagem / Documento PDF: ${fileName}, tipo: ${targetMimeType} - Devido a falha de cota do Gemini, o sistema está usando fallback para Groq Llama-3.3 de texto. Analisando o histórico de conversação.]\n\n`;
-          }
+      results.gemini.durationMs = Date.now() - geminiStart;
+      if (result && result.text) {
+        results.gemini.status = "connected";
+        results.gemini.response = `${result.text.trim()} (via ${result.usedKey})`;
+        results.gemini.statusCode = 200;
+      } else {
+        results.gemini.status = "failed";
+        results.gemini.error = lastErr ? (lastErr.message || "Erro Gemini") : "Nenhum texto retornado do modelo.";
+        results.gemini.statusCode = lastErr ? (lastErr.status || 500) : 204;
+      }
 
-          const groqMessages = [
-            {
-              role: "system",
-              content: "Você é uma IA especializada na leitura profunda e análise lógica de arquivos de diversos formatos. Seu objetivo é ajudar o usuário com leituras precisas, resumos ricos, responder a perguntas complexas sobre os documentos do Google Drive de forma clara, amigável e extremamente competente profissionalmente. Responda em Português do Brasil a menos que solicitado o contrário."
-            }
-          ];
-
-          if (chatHistory && Array.isArray(chatHistory)) {
-            for (const historyItem of chatHistory) {
-              groqMessages.push({
-                role: historyItem.role === 'model' ? "assistant" : "user",
-                content: historyItem.text
-              });
-            }
-          }
-
-          groqMessages.push({
-            role: "user",
-            content: `${textPromptForGroq}\n\nO comando/pergunta do usuário é: "${userMessage}"`
-          });
-
+      // Test Groq
+      const groqStart = Date.now();
+      const groqApiKey = process.env.GROQ_API_KEY;
+      if (!groqApiKey) {
+        results.groq.status = "failed";
+        results.groq.error = "GROQ_API_KEY ausente";
+        results.groq.statusCode = 401;
+      } else {
+        try {
+          console.log("[AI Test] Testando Groq...");
           const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -1238,48 +1505,58 @@ Escreva um resumo executivo em português no campo 'summary' sobre o que extraiu
             },
             body: JSON.stringify({
               model: "llama-3.3-70b-versatile",
-              messages: groqMessages,
-              temperature: 0.2
+              messages: [{ role: "user", content: "Responda apenas OK" }],
+              max_tokens: 5
             })
           });
 
-          if (!groqResponse.ok) {
-            const body = await groqResponse.text();
-            throw new Error(`Falha no fallback da API da Groq: ${body}`);
-          }
+          results.groq.durationMs = Date.now() - groqStart;
+          results.groq.statusCode = groqResponse.status;
 
-          const groqData = await groqResponse.json();
-          responseText = groqData.choices?.[0]?.message?.content || "";
-          success = true;
-          usedModel = "llama-3.3-70b-versatile";
-          console.log("[Analyze Rotation] Sucesso com o fallback Groq llama-3.3-70b-versatile!");
-        } catch (groqErr: any) {
-          console.warn("[Analyze Rotation] Fallback do Groq também falhou:", groqErr.message || groqErr);
+          if (!groqResponse.ok) {
+            const errorBody = await groqResponse.text();
+            results.groq.status = "failed";
+            results.groq.error = `Erro Groq: ${groqResponse.status}`;
+          } else {
+            const groqData = await groqResponse.json();
+            results.groq.status = "connected";
+            results.groq.response = groqData.choices?.[0]?.message?.content?.trim() || "OK";
+          }
+        } catch (err: any) {
+          console.error("[AI Test] Erro Groq:", err.message);
+          results.groq.status = "failed";
+          results.groq.error = "Erro Groq";
+          results.groq.statusCode = 500;
         }
       }
 
-      // 4. Ultimate Contingency Fallback (Heuristic Assistant)
-      if (!success) {
-        console.log(`[Analyze Contingency] Ativando heurística local de contingência de análise para "${fileName}"`);
-        responseText = getHeuristicAnalysis(fileName, userMessage);
-        success = true;
-        usedModel = "Auditor Heurístico (Cota Contingência)";
-      }
+      const overallSuccess = results.gemini.status === "connected" || results.groq.status === "connected";
+      console.log("[AI Test] Concluído. Sucesso:", overallSuccess);
+      
+      return res.status(200).json({
+        success: overallSuccess,
+        results: results
+      });
 
-      res.json({ text: responseText, usedModel: usedModel });
-
-    } catch (err: any) {
-      console.error("Erro geral no endpoint de análise:", err);
-      res.status(500).json({ error: err.message || "Erro interno do servidor durante a análise do arquivo." });
+    } catch (routeErr: any) {
+      console.error("[AI Test] Falha crítica na rota:", routeErr);
+      return res.status(500).json({
+        success: false,
+        error: routeErr.message,
+        results: results
+      });
     }
   });
 
-  // Global /api error handler so errors don't fall through to the static file server
+  app.use("/api", apiRouter);
+
+  // Error handling for /api routes
   app.use("/api", (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error(`[API Error] ${req.method} ${req.url}:`, err);
     res.status(err.status || 500).json({
-      error: err.message || "Erro interno no servidor.",
-      code: err.code || "INTERNAL_ERROR"
+      success: false,
+      error: err.message || "Internal Server Error",
+      code: err.code || "SERVER_ERROR"
     });
   });
 
