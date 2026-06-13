@@ -26,7 +26,7 @@ const { getDB } = dbUtils;
 
 dotenv.config();
 
-const MOCK_MODE = true;
+const MOCK_MODE = process.env.MOCK_MODE === 'true';
 
 // --- Init Firebase Admin ---
 import firebaseConfig from "./firebase-applet-config.json";
