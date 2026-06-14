@@ -43,6 +43,29 @@ try {
 import crypto from "crypto";
 
 // --- Learning Incremental Helpers ---
+function withTimeout<T>(promise: Promise<T>, ms: number, fallbackValue: T): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => {
+      console.warn(`[Timeout] Operation exceeded ${ms}ms limit. Bypassing.`);
+      resolve(fallbackValue);
+    }, ms);
+  });
+  return Promise.race([
+    promise
+      .then((val) => {
+        clearTimeout(timeoutId);
+        return val;
+      })
+      .catch((err) => {
+        clearTimeout(timeoutId);
+        console.error("[Timeout Wrapper Error] Operation failed:", err);
+        return fallbackValue;
+      }),
+    timeoutPromise
+  ]);
+}
+
 function getImageHash(base64Data: string): string {
   if (!base64Data) return "";
   const base64Clean = base64Data.includes(",") ? base64Data.split(",")[1] : base64Data;
@@ -163,10 +186,14 @@ async function getFewShotPrompt(hospital: string): Promise<string> {
     let examples: any[] = [];
     
     // Verified ones first
-    const verifiedSnap = await db.collection("learned_examples")
-      .where("verified_by_user", "==", true)
-      .limit(10)
-      .get();
+    const verifiedSnap = await withTimeout(
+      db.collection("learned_examples")
+        .where("verified_by_user", "==", true)
+        .limit(10)
+        .get(),
+      1500, // 1.5 seconds budget
+      { empty: true, forEach: () => {} } as any
+    );
       
     verifiedSnap.forEach(doc => {
       const d = doc.data();
@@ -176,10 +203,14 @@ async function getFewShotPrompt(hospital: string): Promise<string> {
     });
 
     if (examples.length < 3) {
-      const highConfSnap = await db.collection("learned_examples")
-        .where("confidence", "==", "high")
-        .limit(15)
-        .get();
+      const highConfSnap = await withTimeout(
+        db.collection("learned_examples")
+          .where("confidence", "==", "high")
+          .limit(15)
+          .get(),
+        1500, // 1.5 seconds budget
+        { empty: true, forEach: () => {} } as any
+      );
         
       highConfSnap.forEach(doc => {
         const d = doc.data();
@@ -1240,8 +1271,9 @@ async function startServer() {
           console.log("[Direct Extraction Back] Convertendo imagem e extraindo texto com Tesseract OCR preliminar...");
           const TesseractModule = await import("tesseract.js") as any;
           const Tesseract = TesseractModule.default || TesseractModule;
-          const ocrResult = await Tesseract.recognize(fileBuffer, "por+eng");
-          extractedText = ocrResult.data.text || "";
+          const ocrPromise = Tesseract.recognize(fileBuffer, "por+eng").then((r: any) => r.data.text || "");
+          // Strict timeout of 2.5s for Tesseract image OCR to avoid any hanging from dynamic CDN bundles
+          extractedText = await withTimeout(ocrPromise, 2500, "");
         }
       } catch (ocrErr: any) {
         console.error("[OCR Preliminar] Falha ao processar OCR:", ocrErr.message);
@@ -1253,11 +1285,15 @@ async function startServer() {
       // Check Template Cache eligibility (10+ verified examples in learned_examples)
       let verifiedCount = 0;
       try {
-        const verifiedSnap = await db.collection("learned_examples")
-          .where("hospital", "==", hospitalName)
-          .where("verified_by_user", "==", true)
-          .get();
-        verifiedCount = verifiedSnap.size;
+        const verifiedSnap = await withTimeout(
+          db.collection("learned_examples")
+            .where("hospital", "==", hospitalName)
+            .where("verified_by_user", "==", true)
+            .get(),
+          1500, // 1.5 seconds budget
+          { size: 0 } as any
+        );
+        verifiedCount = verifiedSnap.size || 0;
       } catch (snapErr) {
         console.warn("[Template Cache Query] Falha ao buscar contagem de verificados:", snapErr);
       }
@@ -1482,21 +1518,22 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       resultData = normalizeExtractionData(resultData);
       console.log("Pacientes recebidos da IA:", resultData?.etiquetas?.length || 0);
 
-      // Register Learning Log for Stats Panel
+      // Register Learning Log for Stats Panel (Background operation - no await for rapid response)
       try {
-        await db.collection("learning_logs").add({
+        db.collection("learning_logs").add({
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
           hospital: hospitalName,
           provider: usedProvider,
           model: usedModel
-        });
+        }).catch(err => console.error("Erro ao salvar log de aprendizado em segundo plano:", err));
       } catch (logErr) {
         console.error("Erro ao registrar log de aprendizado:", logErr);
       }
 
-      // Save to learned_examples if extracted from Gemini/Groq
+      // Save to learned_examples if extracted from Gemini/Groq (Background operation - no await)
       if (usedProvider === "gemini" || usedProvider === "groq") {
-        await saveLearnedExample(fileBase64, resultData, extractedText);
+        saveLearnedExample(fileBase64, resultData, extractedText)
+          .catch(err => console.error("Erro ao salvar exemplo aprendido em segundo plano:", err));
       }
 
       return res.status(200).json({
@@ -1715,8 +1752,9 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
             console.log("[Direct Extraction Back] Convertendo imagem e extraindo texto com Tesseract OCR...");
             const TesseractModule = await import("tesseract.js") as any;
             const Tesseract = TesseractModule.default || TesseractModule;
-            const ocrResult = await Tesseract.recognize(fileBuffer, "por+eng");
-            extractedText = ocrResult.data.text || "";
+            const ocrPromise = Tesseract.recognize(fileBuffer, "por+eng").then((r: any) => r.data.text || "");
+            // Strict timeout of 2.5s to avoid any infinite hanging during fallback OCR
+            extractedText = await withTimeout(ocrPromise, 2500, "");
           }
         } catch (ocrErr: any) {
           console.error("[Direct Extraction Back] Falha ao processar OCR:", ocrErr.message);
