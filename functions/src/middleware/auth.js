@@ -20,7 +20,13 @@ async function authMiddleware(req, res, next) {
     path === "/routes" || 
     path === "/api/routes" || 
     path === "/manifest" || 
-    path === "/api/manifest"
+    path === "/api/manifest" ||
+    path === "/learning/stats" ||
+    path === "/api/learning/stats" ||
+    path === "/learning/examples" ||
+    path === "/api/learning/examples" ||
+    path.startsWith("/learning/examples/") ||
+    path.startsWith("/api/learning/examples/")
   ) {
     return next();
   }

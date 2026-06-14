@@ -40,6 +40,227 @@ try {
   // Ignore if already initialized
 }
 
+import crypto from "crypto";
+
+// --- Learning Incremental Helpers ---
+function getImageHash(base64Data: string): string {
+  if (!base64Data) return "";
+  const base64Clean = base64Data.includes(",") ? base64Data.split(",")[1] : base64Data;
+  return crypto.createHash("md5").update(base64Clean).digest("hex");
+}
+
+function detectHospitalName(text: string): string {
+  if (!text) return "Outro";
+  const uppercased = text.toUpperCase();
+  const knownHospitals = [
+    "BARTIRA", "ALIANÇA", "SANCTA MAGGIORE", "PREVENT SENIOR", "EINSTEIN", 
+    "SÃO LUIZ", "COPA D'OR", "ALVORADA", "SÃO JOSÉ", "BP - BENEFICÊNCIA PORTUGUESA", 
+    "BENEFICENCIA", "HOSPITAL ALMANARA", "9 DE JULHO", "SIRIO LIBANES", "SÍRIO LIBANÊS"
+  ];
+  
+  for (const name of knownHospitals) {
+    if (uppercased.includes(name)) {
+      return name;
+    }
+  }
+  
+  const match = uppercased.match(/(?:HOSPITAL|CLINICA|HOSP\.)\s+([A-ZÀ-Ú0-9\-]+(?:\s+[A-ZÀ-Ú0-9\-]+){0,2})/);
+  if (match && match[1]) {
+    const trimmed = match[1].trim();
+    if (trimmed.length > 2 && !["DE", "DO", "DA", "GERAL", "A"].includes(trimmed)) {
+      return trimmed;
+    }
+  }
+  return "Outro";
+}
+
+function extractWithLocalRegex(rawText: string, hospital: string): any {
+  if (!rawText) return null;
+  const lines = rawText.split("\n");
+  
+  let nome_paciente = "";
+  let numero_atendimento = "";
+  let convenio = "";
+  let data_nascimento = "";
+  
+  for (const line of lines) {
+    const upp = line.trim().toUpperCase();
+    
+    // PACIENTE Name match
+    if (!nome_paciente) {
+      const matchPac = line.match(/(?:PACIENTE|NOME|PAC)\s*[:\-=]\s*([A-Za-zÀ-ÖØ-öø-ÿ\s'\.\-]+)/i);
+      if (matchPac && matchPac[1]) {
+        nome_paciente = matchPac[1].trim().toUpperCase();
+      }
+    }
+    
+    // ATENDIMENTO Number match
+    if (!numero_atendimento) {
+      const matchAtend = line.match(/(?:ATENDIMENTO|ATEND|REGISTRO|ID|Nº\s*ATEND|Nº\s*REG)\s*[:\-=]\s*(\d+)/i);
+      if (matchAtend && matchAtend[1]) {
+        numero_atendimento = matchAtend[1].trim();
+      }
+    }
+    
+    // CONVENIO match
+    if (!convenio) {
+      const matchConv = line.match(/(?:CONVENIO|CONVÊNIO|CONV|PLANO|OPERADORA)\s*[:\-=]\s*([A-Za-zÀ-ÖØ-öø-ÿ\s'\.\-]+)/i);
+      if (matchConv && matchConv[1]) {
+        convenio = matchConv[1].trim().toUpperCase();
+      }
+    }
+    
+    // NASCIMENTO match
+    if (!data_nascimento) {
+      const matchNasc = line.match(/(?:NASCIMENTO|NASC|DATA\s*NASC)\s*[:\-=]\s*(\d{2}[\/\-]\d{2}[\/\-]\d{4}|\d{4}[\/\-]\d{2}[\/\-]\d{2})/i);
+      if (matchNasc && matchNasc[1]) {
+        const rawDate = matchNasc[1].trim();
+        if (rawDate.includes("/")) {
+          const parts = rawDate.split("/");
+          if (parts[0].length === 2 && parts[2]?.length === 4) {
+            data_nascimento = `${parts[2]}-${parts[1]}-${parts[0]}`;
+          } else {
+            data_nascimento = rawDate;
+          }
+        } else {
+          data_nascimento = rawDate;
+        }
+      }
+    }
+  }
+  
+  if (!convenio) {
+    const providers = ["UNIMED", "BRADESCO", "SULAMERICA", "AMIL", "NOTREDAME", "INTERMEDICA", "ALLIANZ", "GOLDEN CROSS", "PORTO SEGURO", "SUS"];
+    for (const p of providers) {
+      if (rawText.toUpperCase().includes(p)) {
+        convenio = p;
+        break;
+      }
+    }
+  }
+  
+  if (!numero_atendimento) {
+    const numMatch = rawText.match(/\b\d{5,9}\b/);
+    if (numMatch) {
+      numero_atendimento = numMatch[0];
+    }
+  }
+  
+  if (nome_paciente && numero_atendimento && convenio) {
+    return {
+      nome_paciente,
+      numero_atendimento,
+      convenio,
+      data_nascimento: data_nascimento || undefined
+    };
+  }
+  return null;
+}
+
+async function getFewShotPrompt(hospital: string): Promise<string> {
+  try {
+    const db = getDB();
+    let examples: any[] = [];
+    
+    // Verified ones first
+    const verifiedSnap = await db.collection("learned_examples")
+      .where("verified_by_user", "==", true)
+      .limit(10)
+      .get();
+      
+    verifiedSnap.forEach(doc => {
+      const d = doc.data();
+      if (!hospital || hospital === "Outro" || d.hospital === hospital) {
+        examples.push(d);
+      }
+    });
+
+    if (examples.length < 3) {
+      const highConfSnap = await db.collection("learned_examples")
+        .where("confidence", "==", "high")
+        .limit(15)
+        .get();
+        
+      highConfSnap.forEach(doc => {
+        const d = doc.data();
+        if (!examples.some(x => x.id === d.id)) {
+          if (!hospital || hospital === "Outro" || d.hospital === hospital) {
+            examples.push(d);
+          }
+        }
+      });
+    }
+
+    examples.sort((a, b) => {
+      const tA = a.created_at?.toDate ? a.created_at.toDate().getTime() : 0;
+      const tB = b.created_at?.toDate ? b.created_at.toDate().getTime() : 0;
+      return tB - tA;
+    });
+
+    const selected = examples.slice(0, 3);
+    if (selected.length === 0) return "";
+
+    let fewShotPrompt = "\n\nAqui estão exemplos de extrações corretas anteriores deste tipo de etiqueta:\n";
+    selected.forEach((ex, idx) => {
+      fewShotPrompt += `\nExemplo ${idx + 1}: ${ex.hospital} -> ${JSON.stringify(ex.extracted_data)}\n`;
+    });
+    fewShotPrompt += "\nAgora extraia os dados desta nova imagem seguindo exatamente o mesmo padrão e formato.\n";
+    return fewShotPrompt;
+  } catch (err) {
+    console.error("[Few Shot Query] Failed to search examples:", err);
+    return "";
+  }
+}
+
+async function saveLearnedExample(
+  fileBase64: string,
+  resultData: any,
+  extractedText: string
+) {
+  try {
+    const db = getDB();
+    const image_hash = getImageHash(fileBase64);
+    const hospital = detectHospitalName(extractedText || resultData.summary || "");
+    
+    const existingRef = await db.collection("learned_examples").where("image_hash", "==", image_hash).limit(1).get();
+    if (!existingRef.empty) {
+      console.log(`[Learned DB] Example with image_hash ${image_hash} already exists. Skipping.`);
+      return;
+    }
+
+    const principalEtiqueta = resultData?.etiquetas?.[0] || {};
+    const extracted_data = {
+      nome_paciente: principalEtiqueta.nome_paciente || resultData.nome_paciente || "",
+      numero_atendimento: principalEtiqueta.numero_atendimento || resultData.numero_atendimento || "",
+      convenio: principalEtiqueta.convenio || resultData.convenio || "",
+      data_atendimento: principalEtiqueta.data_atendimento || resultData.data_atendimento || ""
+    };
+
+    const avgConfidence = (
+      (resultData.nome_paciente_confidence || 100) +
+      (resultData.numero_atendimento_confidence || 100) +
+      (resultData.convenio_confidence || 100)
+    ) / 3;
+
+    const confidence = avgConfidence >= 75 ? "high" : "low";
+    const docId = admin.firestore().collection("learned_examples").doc().id;
+
+    await db.collection("learned_examples").doc(docId).set({
+      id: docId,
+      hospital,
+      image_hash,
+      extracted_data,
+      confidence,
+      verified_by_user: false,
+      created_at: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log(`[Learned DB] Automatically saved learned example for ${hospital} with confidence ${confidence}`);
+  } catch (err) {
+    console.error("[Learned DB] Error saving learned example:", err);
+  }
+}
+
 let extractRequestCount = 0;
 let analyzeRequestCount = 0;
 
@@ -772,6 +993,152 @@ async function startServer() {
     }
   });
 
+  // --- Incremental Learning API Routes ---
+  app.get("/api/learning/stats", async (req, res) => {
+    try {
+      const db = getDB();
+      const examplesSnap = await db.collection("learned_examples").get();
+      
+      const total_examples = examplesSnap.size;
+      const by_hospital: { [key: string]: number } = {};
+      
+      examplesSnap.forEach(doc => {
+        const d = doc.data();
+        const hosp = d.hospital || "Outro";
+        by_hospital[hosp] = (by_hospital[hosp] || 0) + 1;
+      });
+
+      // Get last 7 days logs
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      
+      let gemini_calls_last_7d = 0;
+      let local_cache_hits_last_7d = 0;
+
+      try {
+        const logsSnap = await db.collection("learning_logs")
+          .where("timestamp", ">=", sevenDaysAgo)
+          .get();
+
+        logsSnap.forEach(doc => {
+          const d = doc.data();
+          if (d.provider === "local_cache") {
+            local_cache_hits_last_7d++;
+          } else {
+            gemini_calls_last_7d++;
+          }
+        });
+      } catch (logErr) {
+        console.warn("[Stats Log Query] Falha ao consultar learning_logs (talvez vazia):", logErr);
+      }
+
+      return res.status(200).json({
+        success: true,
+        total_examples,
+        by_hospital,
+        gemini_calls_last_7d,
+        local_cache_hits_last_7d
+      });
+    } catch (err: any) {
+      console.error("[Stats Error]", err);
+      if (err.message?.includes("Missing or insufficient permissions")) {
+        return res.status(403).json({
+          success: false,
+          error: "Erro de permissão no Firestore para a coleção de estatísticas.",
+          code: "firestore/permission-denied"
+        });
+      }
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get("/api/learning/examples", async (req, res) => {
+    try {
+      const db = getDB();
+      const snap = await db.collection("learned_examples")
+        .orderBy("created_at", "desc")
+        .limit(100)
+        .get();
+
+      const examples: any[] = [];
+      snap.forEach(doc => {
+        const d = doc.data();
+        let formattedCreatedAt = d.created_at;
+        if (d.created_at?.toDate) {
+          formattedCreatedAt = d.created_at.toDate().toISOString();
+        }
+        examples.push({
+          ...d,
+          created_at: formattedCreatedAt
+        });
+      });
+
+      return res.status(200).json({
+        success: true,
+        examples
+      });
+    } catch (err: any) {
+      console.error("[Examples Error]", err);
+      if (err.message?.includes("Missing or insufficient permissions")) {
+        return res.status(403).json({
+          success: false,
+          error: "Erro de permissão no Firestore para a lista de exemplos.",
+          code: "firestore/permission-denied"
+        });
+      }
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post("/api/learning/examples/:id/verify", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { extracted_data, action } = req.body;
+      const db = getDB();
+
+      const docRef = db.collection("learned_examples").doc(id);
+      const docSnap = await docRef.get();
+
+      if (!docSnap.exists) {
+        return res.status(404).json({ success: false, error: "Exemplo não encontrado." });
+      }
+
+      if (action === "delete") {
+        await docRef.delete();
+        console.log(`[Learned DB] Deleted example ${id}`);
+        return res.status(200).json({ success: true, message: "Exemplo excluído com sucesso." });
+      }
+
+      const updateData: any = {
+        verified_by_user: true,
+        confidence: "high"
+      };
+
+      if (extracted_data) {
+        updateData.extracted_data = {
+          nome_paciente: extracted_data.nome_paciente?.toUpperCase() || "",
+          numero_atendimento: extracted_data.numero_atendimento || "",
+          convenio: extracted_data.convenio?.toUpperCase() || "",
+          data_atendimento: extracted_data.data_atendimento || ""
+        };
+      }
+
+      await docRef.update(updateData);
+      console.log(`[Learned DB] Verified example ${id} successfully`);
+      return res.status(200).json({ success: true, message: "Exemplo verificado com sucesso." });
+    } catch (err: any) {
+      console.error("[Verify Error]", err);
+      if (err.message?.includes("Missing or insufficient permissions")) {
+        return res.status(403).json({
+          success: false,
+          error: "Erro de permissão no Firestore para verificar o exemplo.",
+          code: "firestore/permission-denied"
+        });
+      }
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // --- API Middleware from Migrated Functions ---
   // Mount logic under /api
   const apiRouter = express.Router();
@@ -857,10 +1224,72 @@ async function startServer() {
       let success = false;
       let resultData: any = null;
       let usedModel = "";
-      let usedProvider: "gemini" | "groq" | "heuristica" = "gemini";
+      let usedProvider: "gemini" | "groq" | "heuristica" | "local_cache" = "gemini";
       let errorMsg = "";
 
-      const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano). 
+      // 0. Preliminary Tesseract OCR/Text extraction so we can identify hospital & template cache
+      let extractedText = "";
+      try {
+        if (mimeType === "application/pdf" || filename?.toLowerCase().endsWith(".pdf")) {
+          console.log("[Direct Extraction Back] Extraindo texto do PDF preliminar...");
+          const pdfParseModule = await import("pdf-parse") as any;
+          const pdfParse = pdfParseModule.default || pdfParseModule;
+          const pdfData = await pdfParse(fileBuffer);
+          extractedText = pdfData.text || "";
+        } else {
+          console.log("[Direct Extraction Back] Convertendo imagem e extraindo texto com Tesseract OCR preliminar...");
+          const TesseractModule = await import("tesseract.js") as any;
+          const Tesseract = TesseractModule.default || TesseractModule;
+          const ocrResult = await Tesseract.recognize(fileBuffer, "por+eng");
+          extractedText = ocrResult.data.text || "";
+        }
+      } catch (ocrErr: any) {
+        console.error("[OCR Preliminar] Falha ao processar OCR:", ocrErr.message);
+      }
+
+      const hospitalName = detectHospitalName(extractedText || filename);
+      const db = getDB();
+
+      // Check Template Cache eligibility (10+ verified examples in learned_examples)
+      let verifiedCount = 0;
+      try {
+        const verifiedSnap = await db.collection("learned_examples")
+          .where("hospital", "==", hospitalName)
+          .where("verified_by_user", "==", true)
+          .get();
+        verifiedCount = verifiedSnap.size;
+      } catch (snapErr) {
+        console.warn("[Template Cache Query] Falha ao buscar contagem de verificados:", snapErr);
+      }
+
+      if (verifiedCount >= 10) {
+        console.log(`[Template Cache] Hospital ${hospitalName} possui ${verifiedCount} exemplos verificados! Tentando extração via OCR local...`);
+        const localParsed = extractWithLocalRegex(extractedText, hospitalName);
+        if (localParsed) {
+          resultData = {
+            documentType: "etiqueta_hospitalar",
+            summary: `[Cache Local Hit] Extração local efetuada com sucesso para o hospital ${hospitalName} (economia Gemini).`,
+            nome_paciente: localParsed.nome_paciente,
+            nome_paciente_confidence: 100,
+            numero_atendimento: localParsed.numero_atendimento,
+            numero_atendimento_confidence: 100,
+            convenio: localParsed.convenio,
+            convenio_confidence: 100,
+            data_nascimento: localParsed.data_nascimento,
+            data_nascimento_confidence: 100,
+            etiquetas: [localParsed]
+          };
+          success = true;
+          usedModel = "OCR Local (Template Cache)";
+          usedProvider = "local_cache";
+          console.log(`[Template Cache Hit] Extração local bem-sucedida para o hospital ${hospitalName}!`);
+        } else {
+          console.log(`[Template Cache Miss] Campos ausentes no OCR local de ${hospitalName}, caindo para Gemini.`);
+        }
+      }
+
+      if (!success) {
+        const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano). 
 Analise a imagem com foco extremo em ETIQUETAS HOSPITALARES e NOTAS FISCAIS.
 As etiquetas hospitalares são frequentemente térmicas, pequenas e podem estar levemente apagadas ou borradas. Use o contexto para decifrar.
 
@@ -894,168 +1323,150 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
   "etiquetas": [] (Array OBRIGATÓRIO contendo TODOS OS PACIENTES detectados na imagem, e não apenas um objeto único)
 }`;
 
-      // 1. Try Gemini models sequentially
-      for (const modelName of models) {
-        try {
-          console.log(`[Direct Extraction] Tentando modelo Gemini: ${modelName}...`);
-          
-          const filePart = {
-            inlineData: {
-              mimeType: mimeType || "image/jpeg",
-              data: fileBase64
+        // Get few-shot dynamic reference examples
+        const fewShotPrompt = await getFewShotPrompt(hospitalName);
+        const activePromptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).${fewShotPrompt}`;
+
+        // 1. Try Gemini models sequentially
+        for (const modelName of models) {
+          try {
+            console.log(`[Direct Extraction] Tentando modelo Gemini: ${modelName}...`);
+            
+            const filePart = {
+              inlineData: {
+                mimeType: mimeType || "image/jpeg",
+                data: fileBase64
+              }
+            };
+
+            const responseSchema = {
+              type: Type.OBJECT,
+              properties: {
+                documentType: { type: Type.STRING },
+                summary: { type: Type.STRING },
+                nome_paciente: { type: Type.STRING },
+                nome_paciente_confidence: { type: Type.NUMBER },
+                numero_atendimento: { type: Type.STRING },
+                numero_atendimento_confidence: { type: Type.NUMBER },
+                idade: { type: Type.NUMBER },
+                idade_confidence: { type: Type.NUMBER },
+                convenio: { type: Type.STRING },
+                convenio_confidence: { type: Type.NUMBER },
+                data_nascimento: { type: Type.STRING },
+                data_nascimento_confidence: { type: Type.NUMBER },
+                etiquetas: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      nome_paciente: { type: Type.STRING },
+                      nome_paciente_confidence: { type: Type.NUMBER },
+                      numero_atendimento: { type: Type.STRING },
+                      numero_atendimento_confidence: { type: Type.NUMBER },
+                      idade: { type: Type.NUMBER },
+                      idade_confidence: { type: Type.NUMBER },
+                      convenio: { type: Type.STRING },
+                      convenio_confidence: { type: Type.NUMBER },
+                      data_nascimento: { type: Type.STRING },
+                      data_nascimento_confidence: { type: Type.NUMBER }
+                    }
+                  }
+                },
+                numeroNota: { type: Type.STRING },
+                dataEmissao: { type: Type.STRING },
+                emitente: { type: Type.STRING },
+                cnpjEmitente: { type: Type.STRING },
+                valorTotal: { type: Type.NUMBER },
+                itens: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      descricao: { type: Type.STRING },
+                      quantidade: { type: Type.NUMBER },
+                      valorUnitario: { type: Type.NUMBER },
+                      valorTotal: { type: Type.NUMBER }
+                    }
+                  }
+                }
+              },
+              required: ["documentType", "summary", "etiquetas"]
+            };
+
+            const result = await generateGeminiContentWithRetry(
+              modelName,
+              [filePart, activePromptPart],
+              systemPrompt,
+              "application/json",
+              responseSchema
+            );
+
+            if (result.text) {
+              resultData = JSON.parse(result.text.trim());
+              success = true;
+              usedModel = `${modelName} (${result.usedKey})`;
+              usedProvider = "gemini";
+              console.log(`[Direct Extraction] Sucesso com o modelo Gemini: ${modelName} usando a chave ${result.usedKey}`);
+              break;
             }
-          };
+          } catch (err: any) {
+            console.warn(`[Direct Extraction] Falha com o modelo Gemini ${modelName}:`, err.message);
+            errorMsg = err.message || "Erro desconhecido no Gemini";
+          }
+        }
 
-          const promptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).`;
+        // 2. OCR + Groq Fallback if Gemini failed (e.g. 429)
+        if (!success) {
+          console.log("[Direct Extraction] Todos os modelos Gemini falharam. Fallback para Groq com OCR preliminar... ");
+          const groqApiKey = process.env.GROQ_API_KEY;
+          if (!groqApiKey) {
+            throw new Error(`Gemini falhou (${errorMsg}) e GROQ_API_KEY não está configurada para fallback.`);
+          }
 
-          const responseSchema = {
-            type: Type.OBJECT,
-            properties: {
-              documentType: { type: Type.STRING },
-              summary: { type: Type.STRING },
-              nome_paciente: { type: Type.STRING },
-              nome_paciente_confidence: { type: Type.NUMBER },
-              numero_atendimento: { type: Type.STRING },
-              numero_atendimento_confidence: { type: Type.NUMBER },
-              idade: { type: Type.NUMBER },
-              idade_confidence: { type: Type.NUMBER },
-              convenio: { type: Type.STRING },
-              convenio_confidence: { type: Type.NUMBER },
-              data_nascimento: { type: Type.STRING },
-              data_nascimento_confidence: { type: Type.NUMBER },
-              etiquetas: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    nome_paciente: { type: Type.STRING },
-                    nome_paciente_confidence: { type: Type.NUMBER },
-                    numero_atendimento: { type: Type.STRING },
-                    numero_atendimento_confidence: { type: Type.NUMBER },
-                    idade: { type: Type.NUMBER },
-                    idade_confidence: { type: Type.NUMBER },
-                    convenio: { type: Type.STRING },
-                    convenio_confidence: { type: Type.NUMBER },
-                    data_nascimento: { type: Type.STRING },
-                    data_nascimento_confidence: { type: Type.NUMBER }
-                  }
-                }
-              },
-              numeroNota: { type: Type.STRING },
-              dataEmissao: { type: Type.STRING },
-              emitente: { type: Type.STRING },
-              cnpjEmitente: { type: Type.STRING },
-              valorTotal: { type: Type.NUMBER },
-              itens: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    descricao: { type: Type.STRING },
-                    quantidade: { type: Type.NUMBER },
-                    valorUnitario: { type: Type.NUMBER },
-                    valorTotal: { type: Type.NUMBER }
-                  }
-                }
-              }
+          if (!extractedText || extractedText.trim().length === 0) {
+            extractedText = "[OCR não retornou texto detectável preliminarmente]";
+          }
+
+          console.log(`[Direct Extraction Back] Enviando texto extraído para Groq llama-3.3-70b-versatile. Tamanho do texto: ${extractedText.length}`);
+
+          const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${groqApiKey}`
             },
-            required: ["documentType", "summary", "etiquetas"]
-          };
+            body: JSON.stringify({
+              model: "llama-3.3-70b-versatile",
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content: `${systemPrompt}\n\nVocê deve analisar o texto bruto extraído via OCR abaixo e retornar OBRIGATORIAMENTE um objeto JSON puro atendendo precisamente aos schemas definidos de etiquetas ou notas fiscais.`
+                },
+                {
+                  role: "user",
+                  content: `Aqui está o texto bruto extraído:\n\n${extractedText}`
+                }
+              ],
+              temperature: 0.1
+            })
+          });
 
-          const result = await generateGeminiContentWithRetry(
-            modelName,
-            [filePart, promptPart],
-            systemPrompt,
-            "application/json",
-            responseSchema
-          );
+          if (!groqResponse.ok) {
+            const groqErrText = await groqResponse.text();
+            throw new Error(`Falha na API da Groq: ${groqResponse.status} - ${groqErrText}`);
+          }
 
-          if (result.text) {
-            resultData = JSON.parse(result.text.trim());
+          const groqData = await groqResponse.json();
+          const groqResultText = groqData.choices[0].message.content;
+          
+          if (groqResultText) {
+            resultData = JSON.parse(groqResultText.trim());
             success = true;
-            usedModel = `${modelName} (${result.usedKey})`;
-            usedProvider = "gemini";
-            console.log(`[Direct Extraction] Sucesso com o modelo Gemini: ${modelName} usando a chave ${result.usedKey}`);
-            break;
+            usedModel = "llama-3.3-70b-versatile";
+            usedProvider = "groq";
+            console.log("[Direct Extraction Back] Sucesso com o fallback Groq llama-3.3-70b-versatile!");
           }
-        } catch (err: any) {
-          console.warn(`[Direct Extraction] Falha com o modelo Gemini ${modelName}:`, err.message);
-          errorMsg = err.message || "Erro desconhecido no Gemini";
-        }
-      }
-
-      // 2. OCR + Groq Fallback if Gemini failed (e.g. 429)
-      if (!success) {
-        console.log("[Direct Extraction] Todos os modelos Gemini falharam. Iniciando fallback para Groq com OCR... ");
-        const groqApiKey = process.env.GROQ_API_KEY;
-        if (!groqApiKey) {
-          throw new Error(`Gemini falhou (${errorMsg}) e GROQ_API_KEY não está configurada para fallback.`);
-        }
-
-        let extractedText = "";
-
-        try {
-          if (mimeType === "application/pdf" || filename?.toLowerCase().endsWith(".pdf")) {
-            console.log("[Direct Extraction Back] Extraindo texto do PDF com pdf-parse...");
-            const pdfParseModule = await import("pdf-parse") as any;
-            const pdfParse = pdfParseModule.default || pdfParseModule;
-            const pdfData = await pdfParse(fileBuffer);
-            extractedText = pdfData.text || "";
-          } else {
-            console.log("[Direct Extraction Back] Convertendo imagem e extraindo texto com Tesseract OCR...");
-            const TesseractModule = await import("tesseract.js") as any;
-            const Tesseract = TesseractModule.default || TesseractModule;
-            const ocrResult = await Tesseract.recognize(fileBuffer, "por+eng");
-            extractedText = ocrResult.data.text || "";
-          }
-        } catch (ocrErr: any) {
-          console.error("[Direct Extraction Back] Falha ao processar OCR:", ocrErr.message);
-          extractedText = `[OCR falhou: ${ocrErr.message}]. Favor tentar inferir dados a partir dos caminhos possíveis.`;
-        }
-
-        if (!extractedText || extractedText.trim().length === 0) {
-          extractedText = "[OCR não retornou texto detectável]";
-        }
-
-        console.log(`[Direct Extraction Back] Enviando texto extraído para Groq llama-3.3-70b-versatile. Tamanho do texto: ${extractedText.length}`);
-
-        const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${groqApiKey}`
-          },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            response_format: { type: "json_object" },
-            messages: [
-              {
-                role: "system",
-                content: `${systemPrompt}\n\nVocê deve analisar o texto bruto extraído via OCR abaixo e retornar OBRIGATORIAMENTE um objeto JSON puro atendendo precisamente aos schemas definidos de etiquetas ou notas fiscais.`
-              },
-              {
-                role: "user",
-                content: `Aqui está o texto bruto extraído:\n\n${extractedText}`
-              }
-            ],
-            temperature: 0.1
-          })
-        });
-
-        if (!groqResponse.ok) {
-          const groqErrText = await groqResponse.text();
-          throw new Error(`Falha na API da Groq: ${groqResponse.status} - ${groqErrText}`);
-        }
-
-        const groqData = await groqResponse.json();
-        const groqResultText = groqData.choices[0].message.content;
-        
-        if (groqResultText) {
-          resultData = JSON.parse(groqResultText.trim());
-          success = true;
-          usedModel = "llama-3.3-70b-versatile";
-          usedProvider = "groq";
-          console.log("[Direct Extraction Back] Sucesso com o fallback Groq llama-3.3-70b-versatile!");
         }
       }
 
@@ -1070,6 +1481,23 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       // Unify Schema and Filter Name Contamination
       resultData = normalizeExtractionData(resultData);
       console.log("Pacientes recebidos da IA:", resultData?.etiquetas?.length || 0);
+
+      // Register Learning Log for Stats Panel
+      try {
+        await db.collection("learning_logs").add({
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          hospital: hospitalName,
+          provider: usedProvider,
+          model: usedModel
+        });
+      } catch (logErr) {
+        console.error("Erro ao registrar log de aprendizado:", logErr);
+      }
+
+      // Save to learned_examples if extracted from Gemini/Groq
+      if (usedProvider === "gemini" || usedProvider === "groq") {
+        await saveLearnedExample(fileBase64, resultData, extractedText);
+      }
 
       return res.status(200).json({
         success: true,
