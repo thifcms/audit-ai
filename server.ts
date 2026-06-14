@@ -1325,8 +1325,17 @@ async function startServer() {
       }
 
       if (!success) {
-        const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano). 
-Analise a imagem com foco extremo em ETIQUETAS HOSPITALARES e NOTAS FISCAIS.
+        const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano).
+Diretrizes fundamentais para NOTAS FISCAIS (NFS-e / Prefeitura / Nibo / etc.):
+- O campo "emitente" deve ser obrigatoriamente preenchido com a razão social ou nome fantasia do PRESTADOR DE SERVIÇOS (quem prestou o serviço/emitiu). Nunca use o tomador.
+- O campo "cnpjEmitente" deve ser o CNPJ do PRESTADOR DE SERVIÇOS.
+- O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão", "Data Emissão" ou "Emissão" (no formato DD/MM/AAAA ou AAAA-MM-DD).
+- O campo "numeroNota" deve ser o número identificador da nota fiscal.
+- O campo "valorTotal" deve ser o valor líquido ou total do documento (\"Valor de Serviços\", \"Valor Líquido\", etc.).
+- O campo "documentType" deve ser definido como "nota_fiscal".
+- O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
+
+Diretrizes de extração para ETIQUETAS:
 As etiquetas hospitalares são frequentemente térmicas, pequenas e podem estar levemente apagadas ou borradas. Use o contexto para decifrar.
 
 Campos típicos em etiquetas: 
@@ -1610,8 +1619,17 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       let usedProvider: "gemini" | "groq" | "heuristica" = "gemini";
       let errorMsg = "";
 
-      const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano). 
-Analise a imagem com foco extremo em ETIQUETAS HOSPITALARES e NOTAS FISCAIS.
+      const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano).
+Diretrizes fundamentais para NOTAS FISCAIS (NFS-e / Prefeitura / Nibo / etc.):
+- O campo "emitente" deve ser obrigatoriamente preenchido com a razão social ou nome fantasia do PRESTADOR DE SERVIÇOS (quem prestou o serviço/emitiu). Nunca use o tomador.
+- O campo "cnpjEmitente" deve ser o CNPJ do PRESTADOR DE SERVIÇOS.
+- O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão", "Data Emissão" ou "Emissão" (no formato DD/MM/AAAA ou AAAA-MM-DD).
+- O campo "numeroNota" deve ser o número identificador da nota fiscal.
+- O campo "valorTotal" deve ser o valor líquido ou total do documento (\"Valor de Serviços\", \"Valor Líquido\", etc.).
+- O campo "documentType" deve ser definido como "nota_fiscal".
+- O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
+
+Diretrizes de extração para ETIQUETAS:
 As etiquetas hospitalares geralmente contêm: 
 - "Nº Atendimento" ou "Atend": Identificador numérico curto.
 - "Paciente": Nome completo.
