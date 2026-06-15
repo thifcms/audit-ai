@@ -595,6 +595,20 @@ function getHeuristicFallback(filename: string, expectedType: string): any {
 function normalizeExtractionData(resultData: any): any {
   if (!resultData) return { etiquetas: [] };
   
+  // Guard specifically for corporate invoices to preserve exact schema elements with no label-strip/overwriting
+  if (resultData.documentType === "nota_fiscal") {
+    if (!resultData.etiquetas) resultData.etiquetas = [];
+    resultData.emitente = resultData.emitente ? String(resultData.emitente).trim() : "";
+    resultData.cnpjEmitente = resultData.cnpjEmitente ? String(resultData.cnpjEmitente).trim() : "";
+    resultData.numeroNota = resultData.numeroNota ? String(resultData.numeroNota).trim() : "";
+    resultData.dataEmissao = resultData.dataEmissao ? String(resultData.dataEmissao).trim() : "";
+    resultData.valorTotal = resultData.valorTotal ? Number(resultData.valorTotal) || 0 : 0;
+    if (!resultData.itens || !Array.isArray(resultData.itens)) {
+      resultData.itens = [];
+    }
+    return resultData;
+  }
+  
   // Ensure we have an etiquetas array
   if (!resultData.etiquetas || !Array.isArray(resultData.etiquetas)) {
     resultData.etiquetas = [];
@@ -1325,16 +1339,25 @@ async function startServer() {
       }
 
       if (!success) {
-        const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano).
-Diretrizes fundamentais para NOTAS FISCAIS (NFS-e / Prefeitura / Nibo / etc.):
-- O campo "emitente" deve ser obrigatoriamente preenchido com a razão social ou nome fantasia do PRESTADOR DE SERVIÇOS (quem prestou o serviço/emitiu). Nunca use o tomador.
-- O campo "cnpjEmitente" deve ser o CNPJ do PRESTADOR DE SERVIÇOS.
-- O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão", "Data Emissão" ou "Emissão" (no formato DD/MM/AAAA ou AAAA-MM-DD).
-- O campo "numeroNota" deve ser o número identificador da nota fiscal.
-- O campo "valorTotal" deve ser o valor líquido ou total do documento (\"Valor de Serviços\", \"Valor Líquido\", etc.).
-- O campo "documentType" deve ser definido como "nota_fiscal".
-- O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
-
+        const textToCheck = ((extractedText || "") + " " + (filename || "")).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        const isNfs = textToCheck.includes("NOTA FISCAL") || textToCheck.includes("NFS-E") || textToCheck.includes("TOMADOR DE SERVICOS") || (expectedType && expectedType.toUpperCase() === "NOTA_FISCAL");
+        
+        let systemPrompt = "";
+        if (isNfs) {
+          systemPrompt = `Você é um sistema especialista em faturamento hospitalar e notas fiscais de altíssima precisão (nível OCR Humano).
+Você está processando uma Nota Fiscal de Serviço Eletrônica (NFS-e / Prefeitura / Nibo).
+DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
+1. O campo "documentType" deve ser definido obrigatoriamente como "nota_fiscal".
+2. O campo "emitente" deve ser obrigatoriamente preenchido com a razão social ou nome fantasia do TOMADOR DE SERVIÇOS (o hospital/cliente listado como tomador, pagador ou tomador de serviços). NÃO use o prestador de serviços.
+3. O campo "cnpjEmitente" deve ser preenchido com o CNPJ do TOMADOR DE SERVIÇOS.
+4. O campo "numeroNota" deve ser o número identificador da nota fiscal (ex: encontre o número único identificador, como "991" no canto superior direito).
+5. O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão" ou similar (ex: "15/05/2026", preencha no formato DD/MM/AAAA ou AAAA-MM-DD).
+6. O campo "valorTotal" deve ser o valor líquido ou total do documento ("Valor de Serviços", "Valor dos Serviços", "Valor Líquido", etc.).
+7. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
+8. Retorne um array de etiquetas vazio [] para o campo "etiquetas", mantendo o tipo do array para compatibilidade.
+Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
+        } else {
+          systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano).
 Diretrizes de extração para ETIQUETAS:
 As etiquetas hospitalares são frequentemente térmicas, pequenas e podem estar levemente apagadas ou borradas. Use o contexto para decifrar.
 
@@ -1367,10 +1390,14 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
   "summary": "STRING (Resumo técnico em português descrevendo a qualidade da leitura)",
   "etiquetas": [] (Array OBRIGATÓRIO contendo TODOS OS PACIENTES detectados na imagem, e não apenas um objeto único)
 }`;
+        }
 
         // Get few-shot dynamic reference examples
         const fewShotPrompt = await getFewShotPrompt(hospitalName);
-        const activePromptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).${fewShotPrompt}`;
+        let activePromptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).${fewShotPrompt}`;
+        if (isNfs) {
+          activePromptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal e itens.`;
+        }
 
         // 1. Try Gemini models sequentially
         for (const modelName of models) {
@@ -1619,28 +1646,37 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       let usedProvider: "gemini" | "groq" | "heuristica" = "gemini";
       let errorMsg = "";
 
-      const systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano).
-Diretrizes fundamentais para NOTAS FISCAIS (NFS-e / Prefeitura / Nibo / etc.):
-- O campo "emitente" deve ser obrigatoriamente preenchido com a razão social ou nome fantasia do PRESTADOR DE SERVIÇOS (quem prestou o serviço/emitiu). Nunca use o tomador.
-- O campo "cnpjEmitente" deve ser o CNPJ do PRESTADOR DE SERVIÇOS.
-- O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão", "Data Emissão" ou "Emissão" (no formato DD/MM/AAAA ou AAAA-MM-DD).
-- O campo "numeroNota" deve ser o número identificador da nota fiscal.
-- O campo "valorTotal" deve ser o valor líquido ou total do documento (\"Valor de Serviços\", \"Valor Líquido\", etc.).
-- O campo "documentType" deve ser definido como "nota_fiscal".
-- O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
+      const filenameUpper = (filename || "").toUpperCase();
+      const isNfsByFilename = filenameUpper.includes("NOTA") || filenameUpper.includes("NF") || filenameUpper.includes("FATURA") || filenameUpper.includes("RECIBO") || (expectedType && expectedType.toUpperCase() === "NOTA_FISCAL");
 
-Diretrizes de extração para ETIQUETAS:
-As etiquetas hospitalares geralmente contêm: 
-- "Nº Atendimento" ou "Atend": Identificador numérico curto.
-- "Paciente": Nome completo.
-- "Nascimento" ou "Nasc": Data de nascimento.
-- "Convênio": Nome da operadora de saúde.
+      let systemPrompt = "";
+      if (isNfsByFilename) {
+        systemPrompt = `Você é um sistema especialista em faturamento hospitalar e notas fiscais de altíssima precisão (nível OCR Humano).
+Você está processando uma Nota Fiscal de Serviço Eletrônica (NFS-e / Prefeitura / Nibo).
+DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
+1. O campo "documentType" deve ser definido obrigatoriamente como "nota_fiscal".
+2. O campo "emitente" deve ser obrigatoriamente preenchido com a razão social ou nome fantasia do TOMADOR DE SERVIÇOS (o hospital/cliente listado como tomador, pagador ou tomador de serviços). NÃO use o prestador de serviços.
+3. O campo "cnpjEmitente" deve ser preenchido com o CNPJ do TOMADOR DE SERVIÇOS.
+4. O campo "numeroNota" deve ser o número identificador da nota fiscal (ex: encontre o número único identificador, como "991" no canto superior direito).
+5. O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão" ou similar (ex: "15/05/2026", preencha no formato DD/MM/AAAA ou AAAA-MM-DD).
+6. O campo "valorTotal" deve ser o valor líquido ou total do documento ("Valor de Serviços", "Valor dos Serviços", "Valor Líquido", etc.).
+7. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
+8. Retorne um array de etiquetas vazio [] para o campo "etiquetas", mantendo o tipo do array para compatibilidade.
+Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
+      } else {
+        systemPrompt = `Você é um sistema especialista em faturamento hospitalar e etiquetas hospitalares.
+Se a imagem for identificada como uma etiqueta hospitalar, use o schema de etiqueta usual.
+Se, no entanto, a imagem contiver elementos de "NOTA FISCAL", "NFS-e" ou "TOMADOR DE SERVIÇOS" (seja de prefeitura, Nibo ou etc.), extraia como uma NOTA FISCAL (documentType: "nota_fiscal") e siga estritamente estas regras:
+- O campo "emitente" deve ser obrigatoriamente preenchido com os dados do TOMADOR DE SERVIÇOS (o hospital/empresa contratante), NUNCA os dados do emitente/prestador original de serviços.
+- O campo "cnpjEmitente" deve ser o CNPJ do TOMADOR DE SERVIÇOS.
+- O campo "dataEmissao" deve ser a data de emissão.
+- O campo "numeroNota" deve ser o número identificador (ex: "991" ou similar).
+- O campo "valorTotal" deve ser o valor líquido ou dos serviços.
+- O array "itens" deve conter os procedimentos.
+- O array "etiquetas" deve ser retornado vazio [].
 
-Siga estas regras rigorosas:
-1. Extraia os dados demográficos mesmo que o texto esteja pequeno, levemente borrado ou inclinado.
-2. Identifique múltiplos registros se houver mais de uma etiqueta na foto (preencha o array 'etiquetas' se houver vários).
-3. Para caligrafia médica difícil ou etiquetas térmicas apagadas, use análise contextual para reconstruir os nomes e números.
-4. Retorne EXCLUSIVAMENTE o JSON no schema solicitado.
+Para ETIQUETAS HOSPITALARES normais:
+Identifique os dados demográficos (nome_paciente, numero_atendimento, idade, convenio, data_nascimento) e preencha o array de etiquetas.
 
 Schema estruturado obrigatório (inclua *_confidence de 0-100):
 {
@@ -1648,16 +1684,17 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
   "nome_paciente_confidence": NUMBER,
   "numero_atendimento": "STRING (Apenas os dígitos do ID de atendimento)",
   "numero_atendimento_confidence": NUMBER,
-  "idade": NUMBER (Calculado a partir da data de nascimento se presente),
+  "idade": NUMBER,
   "idade_confidence": NUMBER,
-  "convenio": "STRING (Nome do convênio ou 'SUS' se não identificado)",
+  "convenio": "STRING",
   "convenio_confidence": NUMBER,
-  "data_nascimento": "STRING (Formato AAAA-MM-DD)",
+  "data_nascimento": "STRING",
   "data_nascimento_confidence": NUMBER,
   "documentType": "etiqueta_hospitalar" | "nota_fiscal" | "outro",
-  "summary": "STRING (Resumo técnico em português)",
-  "etiquetas": [] (Array OBRIGATÓRIO contendo TODOS OS PACIENTES detectados na imagem, e não apenas um objeto único)
+  "summary": "STRING",
+  "etiquetas": []
 }`;
+      }
 
       // 1. Try Gemini models sequentially
       for (const modelName of models) {
@@ -1671,7 +1708,10 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
             }
           };
 
-          const promptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).`;
+          let promptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).`;
+          if (isNfsByFilename) {
+            promptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal e itens.`;
+          }
 
           const responseSchema = {
             type: Type.OBJECT,
