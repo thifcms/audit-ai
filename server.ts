@@ -594,10 +594,15 @@ function getHeuristicFallback(filename: string, expectedType: string): any {
 
 function normalizeExtractionData(resultData: any): any {
   if (!resultData) return { etiquetas: [] };
-  console.log('DOCUMENT TYPE:', resultData.documentType);
+  console.log('--- RAW EXTRACTION DATA ---');
+  console.log(JSON.stringify(resultData, null, 2));
+  console.log('DOCUMENT TYPE ORIGINAL:', resultData.documentType);
+  
+  const docType = String(resultData.documentType || "").toLowerCase().trim();
+  const isNotaFiscal = docType === "nota_fiscal" || docType === "nota fiscal" || docType === "fatura" || docType === "recibo";
   
   // Guard specifically for corporate invoices to preserve exact schema elements with no label-strip/overwriting
-  if (resultData.documentType === "nota_fiscal" && 
+  if (isNotaFiscal && 
       (resultData.numeroNota || resultData.valorTotal || resultData.emitente)) {
     if (!resultData.etiquetas) resultData.etiquetas = [];
     const emitenteVal = resultData.emitente || resultData.emitente_servicos || resultData.tomador || resultData.razao_social || resultData.hospital;
