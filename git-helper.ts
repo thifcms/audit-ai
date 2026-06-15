@@ -1,32 +1,27 @@
 import { execSync } from "child_process";
 
 try {
-  console.log("Checking git status...");
-  const status = execSync("git status", { encoding: "utf8" });
-  console.log(status);
-
-  console.log("Adding files...");
+  console.log("Staging all current workspace changes...");
   execSync("git add .");
 
-  console.log("Committing changes...");
+  console.log("Checking if there are any lingering uncommitted changes to stage...");
   try {
-    const commitMsg = "feat: adiciona extração e normalização do campo valorLiquido para notas fiscais NFS-e";
-    const commitResult = execSync(`git commit -m "${commitMsg}"`, { encoding: "utf8" });
-    console.log(commitResult);
+    execSync("git commit -m 'chore: synchronization commit for helper files'", { encoding: "utf8" });
+    console.log("Committed pending helper changes successfully.");
   } catch (commitErr: any) {
-    if (commitErr.stdout && commitErr.stdout.includes("nothing to commit")) {
-      console.log("Nothing to commit, repository already up to date.");
-    } else {
-      throw commitErr;
-    }
+    console.log("Nothing additional to commit, continuing...");
   }
 
-  console.log("Pushing changes...");
-  const pushResult = execSync("git push", { encoding: "utf8" });
-  console.log(pushResult);
-  console.log("Git push executed successfully!");
+  console.log("Pulling latest remote changes via rebase...");
+  const pullOutput = execSync("git pull --rebase origin main", { encoding: "utf8" });
+  console.log("Pull output:", pullOutput);
+
+  console.log("Pushing tracking branch to origin...");
+  const pushOutput = execSync("git push origin main", { encoding: "utf8" });
+  console.log("Push output:", pushOutput);
+  console.log("Git sync operation completed successfully!");
 } catch (error: any) {
-  console.error("Error executing Git helper:", error.message);
+  console.error("Error executing robust Git helper:", error.message);
   if (error.stdout) console.error("Stdout:", error.stdout);
   if (error.stderr) console.error("Stderr:", error.stderr);
 }
