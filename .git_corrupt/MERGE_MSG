@@ -1,0 +1,6 @@
+chore: add explicit literal extraction instruction for valorLiquido to avoid fallback to valorTotal
+
+# Conflicts:
+#	dist/index.html
+#	dist/server.cjs
+#	dist/server.cjs.map

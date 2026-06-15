@@ -1,0 +1,1 @@
+pick 724dad5a804d32037d5dd08c85eed58ca95226a0 chore: add explicit literal extraction instruction for valorLiquido to avoid fallback to valorTotal
