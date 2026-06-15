@@ -1,27 +1,24 @@
 import { execSync } from "child_process";
 
 try {
-  console.log("Staging all current workspace changes...");
-  execSync("git add .");
+  console.log("Staging all changes...");
+  execSync("git add .", { stdio: "inherit" });
 
-  console.log("Checking if there are any lingering uncommitted changes to stage...");
+  console.log("Committing modifications...");
   try {
-    execSync("git commit -m 'chore: synchronization commit for helper files'", { encoding: "utf8" });
-    console.log("Committed pending helper changes successfully.");
-  } catch (commitErr: any) {
-    console.log("Nothing additional to commit, continuing...");
+    execSync("git commit -m 'chore: add robust key aliases normalization and temporary DOCUMENT TYPE logging'", { stdio: "inherit" });
+  } catch (err) {
+    console.log("Nothing to commit.");
   }
 
-  console.log("Pulling latest remote changes via rebase...");
-  const pullOutput = execSync("git pull --rebase origin main", { encoding: "utf8" });
-  console.log("Pull output:", pullOutput);
+  console.log("Pulling remote changes with rebase...");
+  execSync("git pull --rebase origin main", { stdio: "inherit" });
 
-  console.log("Pushing tracking branch to origin...");
-  const pushOutput = execSync("git push origin main", { encoding: "utf8" });
-  console.log("Push output:", pushOutput);
-  console.log("Git sync operation completed successfully!");
+  console.log("Pushing synchronization commit to origin...");
+  execSync("git push origin main", { stdio: "inherit" });
+  console.log("Sync succeeded!");
 } catch (error: any) {
-  console.error("Error executing robust Git helper:", error.message);
+  console.error("Git helper execution failed:", error.message);
   if (error.stdout) console.error("Stdout:", error.stdout);
   if (error.stderr) console.error("Stderr:", error.stderr);
 }

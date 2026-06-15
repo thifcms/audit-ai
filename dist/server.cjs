@@ -4496,14 +4496,21 @@ function getHeuristicFallback(filename, expectedType) {
 }
 function normalizeExtractionData(resultData) {
   if (!resultData) return { etiquetas: [] };
+  console.log("DOCUMENT TYPE:", resultData.documentType);
   if (resultData.documentType === "nota_fiscal" && (resultData.numeroNota || resultData.valorTotal || resultData.emitente)) {
     if (!resultData.etiquetas) resultData.etiquetas = [];
-    resultData.emitente = resultData.emitente ? String(resultData.emitente).trim() : "";
-    resultData.cnpjEmitente = resultData.cnpjEmitente ? String(resultData.cnpjEmitente).trim() : "";
-    resultData.numeroNota = resultData.numeroNota ? String(resultData.numeroNota).trim() : "";
-    resultData.dataEmissao = resultData.dataEmissao ? String(resultData.dataEmissao).trim() : "";
-    resultData.valorTotal = resultData.valorTotal ? Number(resultData.valorTotal) || 0 : 0;
-    resultData.valorLiquido = resultData.valorLiquido ? Number(resultData.valorLiquido) || 0 : resultData.valorTotal || 0;
+    const emitenteVal = resultData.emitente || resultData.emitente_servicos || resultData.tomador || resultData.razao_social || resultData.hospital;
+    resultData.emitente = emitenteVal ? String(emitenteVal).trim() : "";
+    const cnpjVal = resultData.cnpjEmitente || resultData.cnpj_emitente || resultData.cnpj_tomador || resultData.cnpjTomador;
+    resultData.cnpjEmitente = cnpjVal ? String(cnpjVal).trim() : "";
+    const numeroNotaVal = resultData.numeroNota || resultData.numero_nota || resultData.num_nota || resultData.numero;
+    resultData.numeroNota = numeroNotaVal ? String(numeroNotaVal).trim() : "";
+    const dataEmissaoVal = resultData.dataEmissao || resultData.data_emissao || resultData.data_de_emissao || resultData.data;
+    resultData.dataEmissao = dataEmissaoVal ? String(dataEmissaoVal).trim() : "";
+    const valorTotalVal = resultData.valorTotal || resultData.valor_total || resultData.valorTotalServicos || resultData.valor_total_servicos || resultData.valor_servicos;
+    resultData.valorTotal = valorTotalVal ? Number(valorTotalVal) || 0 : 0;
+    const valorLiquidoVal = resultData.valorLiquido || resultData.valor_liquido || resultData.valorLiquidoServicos || resultData.valor_liquido_faturado;
+    resultData.valorLiquido = valorLiquidoVal ? Number(valorLiquidoVal) || 0 : resultData.valorTotal || 0;
     if (!resultData.itens || !Array.isArray(resultData.itens)) {
       resultData.itens = [];
     }
