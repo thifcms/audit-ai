@@ -1417,7 +1417,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
         const fewShotPrompt = await getFewShotPrompt(hospitalName);
         let activePromptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).${fewShotPrompt}`;
         if (isNfs) {
-          activePromptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal, valorLiquido e itens.`;
+          activePromptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal, valorLiquido e itens. Procure especificamente pela linha 'Valor Líquido: R$ X' no corpo/discriminação do serviço, que é diferente do 'VALOR TOTAL DA NOTA'.`;
         }
 
         // 1. Try Gemini models sequentially
@@ -1753,7 +1753,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
 
           let promptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).`;
           if (isNfsByFilename) {
-            promptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal, valorLiquido e itens.`;
+            promptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal, valorLiquido e itens. Procure especificamente pela linha 'Valor Líquido: R$ X' no corpo/discriminação do serviço, que é diferente do 'VALOR TOTAL DA NOTA'.`;
           }
 
           const responseSchema = {
