@@ -1220,6 +1220,8 @@ async function startServer() {
   
   // Gemini Extraction Route (Protected now)
   apiRouter.post("/gemini/extract", async (req, res) => {
+    // [Audit IA Integration] Extração Cirúrgica de Nota Fiscal - Tomador de Serviços e DataEmissao
+    console.log("[Audit IA API] Iniciando extração integrada via Gemini...");
     try {
       const { fileBase64, filename, mimeType, expectedType, modelStrategy } = req.body;
       if (!fileBase64) {
@@ -1610,6 +1612,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
 
   // Public Extraction endpoint (No Auth)
   app.post("/public/extract", async (req, res) => {
+    // [Audit IA Integration] Extração Cirúrgica de Nota Fiscal - Tomador de Serviços e DataEmissao
+    console.log("[Audit IA Public API] Iniciando extração pública via Gemini...");
     try {
       const { fileBase64, filename, mimeType, expectedType, modelStrategy } = req.body;
       if (!fileBase64) {
