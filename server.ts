@@ -1487,7 +1487,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                 },
                 valorLiquido: {
                   type: Type.NUMBER,
-                  description: "Valor líquido da nota, após deduções de retenções federais (PIS, COFINS, CSLL, IR) e ISS. Geralmente aparece no campo 'Valor Líquido'. Se não houver retenções, repita o valor de valorTotal."
+                  description: "Valor líquido EXPLICITAMENTE escrito no documento na linha 'Valor Líquido: R$ X' (geralmente dentro da seção 'Discriminação do Serviço', não na tabela de cálculo de impostos no rodapé). Copie esse número exatamente como está escrito. NÃO calcule ou deduza este valor — apenas leia o que está escrito após 'Valor Líquido:'."
                 },
                 itens: {
                   type: Type.ARRAY,
@@ -1811,7 +1811,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               },
               valorLiquido: {
                 type: Type.NUMBER,
-                description: "Valor líquido da nota, após deduções de retenções federais (PIS, COFINS, CSLL, IR) e ISS. Geralmente aparece no campo 'Valor Líquido'. Se não houver retenções, repita o valor de valorTotal."
+                description: "Valor líquido EXPLICITAMENTE escrito no documento na linha 'Valor Líquido: R$ X' (geralmente dentro da seção 'Discriminação do Serviço', não na tabela de cálculo de impostos no rodapé). Copie esse número exatamente como está escrito. NÃO calcule ou deduza este valor — apenas leia o que está escrito após 'Valor Líquido:'."
               },
               itens: {
                 type: Type.ARRAY,
