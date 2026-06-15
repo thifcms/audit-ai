@@ -1444,13 +1444,29 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                     }
                   }
                 },
-                numeroNota: { type: Type.STRING },
-                dataEmissao: { type: Type.STRING },
-                emitente: { type: Type.STRING },
-                cnpjEmitente: { type: Type.STRING },
-                valorTotal: { type: Type.NUMBER },
+                numeroNota: { 
+                  type: Type.STRING, 
+                  description: "O número identificador único da Nota Fiscal (ex: encontre o número destacado como '991', 'Número da Nota', 'Nota n°'). Deixe em branco se for etiqueta." 
+                },
+                dataEmissao: { 
+                  type: Type.STRING, 
+                  description: "A data de emissão exata da Nota Fiscal no formato DD/MM/AAAA ou AAAA-MM-DD. Deve ser extraída de campos como 'Data e Hora da emissão' ou similar (ex: se no texto diz 'Data e Hora da emissão: 15/05/2026 12:24:08', extraia exatamente '15/05/2026'). Deixe em branco se for etiqueta." 
+                },
+                emitente: { 
+                  type: Type.STRING, 
+                  description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais (NFS-e/Prefeitura/Nibo), preencha este campo OBRIGATORIAMENTE com a razão social ou nome do TOMADOR DE SERVIÇOS (o hospital ou contratante listado na nota como tomador/cliente, ex: 'ASSOCIACAO HOSPITALAR FILHAS DE NOSSA SENHORA DO MONTE CALVARIO'). NUNCA preencha com o emitente/prestador original de serviços médicos. Deixe em branco se for etiqueta." 
+                },
+                cnpjEmitente: { 
+                  type: Type.STRING, 
+                  description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais, preencha este campo OBRIGATORIAMENTE com o CNPJ do TOMADOR DE SERVIÇOS (o hospital ou contratante listado como tomador/cliente). NUNCA preencha com o CNPJ do prestador. Deixe em branco se for etiqueta." 
+                },
+                valorTotal: { 
+                  type: Type.NUMBER, 
+                  description: "O valor total líquido ou dos serviços da Nota Fiscal. Deixe zerado se for etiqueta." 
+                },
                 itens: {
                   type: Type.ARRAY,
+                  description: "Array dos itens ou serviços de auditoria/consultoria médica faturados na nota.",
                   items: {
                     type: Type.OBJECT,
                     properties: {
@@ -1746,13 +1762,29 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                   }
                 }
               },
-              numeroNota: { type: Type.STRING },
-              dataEmissao: { type: Type.STRING },
-              emitente: { type: Type.STRING },
-              cnpjEmitente: { type: Type.STRING },
-              valorTotal: { type: Type.NUMBER },
+              numeroNota: { 
+                type: Type.STRING, 
+                description: "O número identificador único da Nota Fiscal (ex: encontre o número destacado como '991', 'Número da Nota', 'Nota n°'). Deixe em branco se for etiqueta." 
+              },
+              dataEmissao: { 
+                type: Type.STRING, 
+                description: "A data de emissão exata da Nota Fiscal no formato DD/MM/AAAA ou AAAA-MM-DD. Deve ser extraída de campos como 'Data e Hora da emissão' ou similar (ex: se no texto diz 'Data e Hora da emissão: 15/05/2026 12:24:08', extraia exatamente '15/05/2026'). Deixe em branco se for etiqueta." 
+              },
+              emitente: { 
+                type: Type.STRING, 
+                description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais (NFS-e/Prefeitura/Nibo), preencha este campo OBRIGATORIAMENTE com a razão social ou nome do TOMADOR DE SERVIÇOS (o hospital ou contratante listado na nota como tomador/cliente, ex: 'ASSOCIACAO HOSPITALAR FILHAS DE NOSSA SENHORA DO MONTE CALVARIO'). NUNCA preencha com o emitente/prestador original de serviços médicos. Deixe em branco se for etiqueta." 
+              },
+              cnpjEmitente: { 
+                type: Type.STRING, 
+                description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais, preencha este campo OBRIGATORIAMENTE com o CNPJ do TOMADOR DE SERVIÇOS (o hospital ou contratante listado como tomador/cliente). NUNCA preencha com o CNPJ do prestador. Deixe em branco se for etiqueta." 
+              },
+              valorTotal: { 
+                type: Type.NUMBER, 
+                description: "O valor total líquido ou dos serviços da Nota Fiscal. Deixe zerado se for etiqueta." 
+              },
               itens: {
                 type: Type.ARRAY,
+                description: "Array dos itens ou serviços de auditoria/consultoria médica faturados na nota.",
                 items: {
                   type: Type.OBJECT,
                   properties: {
