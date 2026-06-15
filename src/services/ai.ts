@@ -32,6 +32,7 @@ export interface InvoiceData {
   emitente: string;
   cnpjEmitente: string;
   valorTotal: number;
+  valorLiquido?: number;
   convenio?: string;
   paciente?: string;
   atendimento?: string;
@@ -70,6 +71,7 @@ export interface UnifiedExtraction {
   emitente?: string;
   cnpjEmitente?: string;
   valorTotal?: number;
+  valorLiquido?: number;
   itens?: InvoiceItem[];
 }
 

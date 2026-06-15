@@ -604,6 +604,7 @@ function normalizeExtractionData(resultData: any): any {
     resultData.numeroNota = resultData.numeroNota ? String(resultData.numeroNota).trim() : "";
     resultData.dataEmissao = resultData.dataEmissao ? String(resultData.dataEmissao).trim() : "";
     resultData.valorTotal = resultData.valorTotal ? Number(resultData.valorTotal) || 0 : 0;
+    resultData.valorLiquido = resultData.valorLiquido ? Number(resultData.valorLiquido) || 0 : (resultData.valorTotal || 0);
     if (!resultData.itens || !Array.isArray(resultData.itens)) {
       resultData.itens = [];
     }
@@ -1354,8 +1355,9 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
 4. O campo "numeroNota" deve ser o número identificador da nota fiscal (ex: encontre o número único identificador, como "991" no canto superior direito).
 5. O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão" ou similar (ex: "15/05/2026", preencha no formato DD/MM/AAAA ou AAAA-MM-DD).
 6. O campo "valorTotal" deve ser o valor líquido ou total do documento ("Valor de Serviços", "Valor dos Serviços", "Valor Líquido", etc.).
-7. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
-8. Retorne um array de etiquetas vazio [] para o campo "etiquetas", mantendo o tipo do array para compatibilidade.
+7. O campo "valorLiquido" deve ser o valor líquido real após deduções/retenções de tributos (geralmente sob o nome de 'Valor Líquido' da nota). Se não houver retenções (como PIS, COFINS, CSLL, IR, ISS), preencha o mesmo valor presente no campo "valorTotal".
+8. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
+9. Retorne um array de etiquetas vazio [] para o campo "etiquetas", mantendo o tipo do array para compatibilidade.
 Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
         } else {
           systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano).
@@ -1397,7 +1399,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
         const fewShotPrompt = await getFewShotPrompt(hospitalName);
         let activePromptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).${fewShotPrompt}`;
         if (isNfs) {
-          activePromptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal e itens.`;
+          activePromptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal, valorLiquido e itens.`;
         }
 
         // 1. Try Gemini models sequentially
@@ -1464,6 +1466,10 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                 valorTotal: { 
                   type: Type.NUMBER, 
                   description: "O valor total líquido ou dos serviços da Nota Fiscal. Deixe zerado se for etiqueta." 
+                },
+                valorLiquido: {
+                  type: Type.NUMBER,
+                  description: "Valor líquido da nota, após deduções de retenções federais (PIS, COFINS, CSLL, IR) e ISS. Geralmente aparece no campo 'Valor Líquido'. Se não houver retenções, repita o valor de valorTotal."
                 },
                 itens: {
                   type: Type.ARRAY,
@@ -1677,8 +1683,9 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
 4. O campo "numeroNota" deve ser o número identificador da nota fiscal (ex: encontre o número único identificador, como "991" no canto superior direito).
 5. O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão" ou similar (ex: "15/05/2026", preencha no formato DD/MM/AAAA ou AAAA-MM-DD).
 6. O campo "valorTotal" deve ser o valor líquido ou total do documento ("Valor de Serviços", "Valor dos Serviços", "Valor Líquido", etc.).
-7. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
-8. Retorne um array de etiquetas vazio [] para o campo "etiquetas", mantendo o tipo do array para compatibilidade.
+7. O campo "valorLiquido" deve ser o valor líquido real após deduções/retenções de tributos (geralmente sob o nome de 'Valor Líquido' da nota). Se não houver retenções (como PIS, COFINS, CSLL, IR, ISS), preencha o mesmo valor presente no campo "valorTotal".
+8. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
+9. Retorne um array de etiquetas vazio [] para o campo "etiquetas", mantendo o tipo do array para compatibilidade.
 Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
       } else {
         systemPrompt = `Você é um sistema especialista em faturamento hospitalar e etiquetas hospitalares.
@@ -1689,6 +1696,7 @@ Se, no entanto, a imagem contiver elementos de "NOTA FISCAL", "NFS-e" ou "TOMADO
 - O campo "dataEmissao" deve ser a data de emissão.
 - O campo "numeroNota" deve ser o número identificador (ex: "991" ou similar).
 - O campo "valorTotal" deve ser o valor líquido ou dos serviços.
+- O campo "valorLiquido" deve ser o valor líquido real após deduções de retenções federais (PIS, COFINS, CSLL, IR) e ISS. Se não houver retenções, repita o valor de valorTotal.
 - O array "itens" deve conter os procedimentos.
 - O array "etiquetas" deve ser retornado vazio [].
 
@@ -1727,7 +1735,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
 
           let promptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).`;
           if (isNfsByFilename) {
-            promptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal e itens.`;
+            promptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal, valorLiquido e itens.`;
           }
 
           const responseSchema = {
@@ -1782,6 +1790,10 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               valorTotal: { 
                 type: Type.NUMBER, 
                 description: "O valor total líquido ou dos serviços da Nota Fiscal. Deixe zerado se for etiqueta." 
+              },
+              valorLiquido: {
+                type: Type.NUMBER,
+                description: "Valor líquido da nota, após deduções de retenções federais (PIS, COFINS, CSLL, IR) e ISS. Geralmente aparece no campo 'Valor Líquido'. Se não houver retenções, repita o valor de valorTotal."
               },
               itens: {
                 type: Type.ARRAY,
