@@ -6,10 +6,13 @@ try {
 
   console.log("Committing modifications...");
   try {
-    execSync("git commit -m 'fix(extraction): normalize documentType validation to prevent schema stripping'", { stdio: "inherit" });
+    execSync("git commit -m 'fix(extraction): better logging'", { stdio: "inherit" });
   } catch (err) {
     console.log("Nothing to commit.");
   }
+
+  console.log("Pulling...");
+  execSync("git pull --rebase origin main", { stdio: "inherit" });
 
   console.log("Pushing to origin...");
   execSync("git push origin main", { stdio: "inherit" });
