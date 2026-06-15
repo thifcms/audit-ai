@@ -4496,7 +4496,7 @@ function getHeuristicFallback(filename, expectedType) {
 }
 function normalizeExtractionData(resultData) {
   if (!resultData) return { etiquetas: [] };
-  if (resultData.documentType === "nota_fiscal") {
+  if (resultData.documentType === "nota_fiscal" && (resultData.numeroNota || resultData.valorTotal || resultData.emitente)) {
     if (!resultData.etiquetas) resultData.etiquetas = [];
     resultData.emitente = resultData.emitente ? String(resultData.emitente).trim() : "";
     resultData.cnpjEmitente = resultData.cnpjEmitente ? String(resultData.cnpjEmitente).trim() : "";

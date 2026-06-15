@@ -70,6 +70,8 @@ export default function ReconciliationDashboard() {
 
       try {
         const result = await extractDocument(file);
+        console.log('AUDIT AI RESPONSE:', result);
+        alert('MAPPED RESULT: ' + JSON.stringify(result, null, 2));
         
         if (result.success) {
           if (result.data.etiquetas && Array.isArray(result.data.etiquetas) && result.data.etiquetas.length > 0) {

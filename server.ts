@@ -596,7 +596,8 @@ function normalizeExtractionData(resultData: any): any {
   if (!resultData) return { etiquetas: [] };
   
   // Guard specifically for corporate invoices to preserve exact schema elements with no label-strip/overwriting
-  if (resultData.documentType === "nota_fiscal") {
+  if (resultData.documentType === "nota_fiscal" && 
+      (resultData.numeroNota || resultData.valorTotal || resultData.emitente)) {
     if (!resultData.etiquetas) resultData.etiquetas = [];
     resultData.emitente = resultData.emitente ? String(resultData.emitente).trim() : "";
     resultData.cnpjEmitente = resultData.cnpjEmitente ? String(resultData.cnpjEmitente).trim() : "";

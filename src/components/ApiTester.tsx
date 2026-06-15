@@ -136,6 +136,8 @@ export default function ApiTester() {
 
     try {
       const data = await extractDocument(file);
+      console.log('AUDIT AI RESPONSE:', data);
+      alert('MAPPED RESULT: ' + JSON.stringify(data, null, 2));
 
       if (data.success) {
         setResult({
