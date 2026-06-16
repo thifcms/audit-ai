@@ -665,6 +665,7 @@ function normalizeExtractionData(resultData: any): any {
     let rawAtendimento = et.numero_atendimento || et.atendimento || "";
     let rawDataStr = et.data_atendimento || et.dataAtendimento || et.data_nascimento || et.dataNascimento || "";
     let rawConvenio = et.convenio || "";
+    let rawHospital = et.hospital || "";
     
     // 2. Data Isolation Filter (Anti-contamination rule/regex for nome_paciente)
     if (typeof rawNome === "string") {
@@ -693,6 +694,10 @@ function normalizeExtractionData(resultData: any): any {
       rawConvenio = rawConvenio.trim().toUpperCase();
     }
     
+    if (typeof rawHospital === "string") {
+      rawHospital = rawHospital.trim().toUpperCase();
+    }
+    
     let rawDataJoined = "";
     if (typeof rawDataStr === "string") {
       rawDataJoined = rawDataStr.trim();
@@ -701,12 +706,13 @@ function normalizeExtractionData(resultData: any): any {
     }
     
     // Return precisely the unified structured object with exact keys:
-    // nome_paciente, numero_atendimento, data_atendimento, convenio
+    // nome_paciente, numero_atendimento, data_atendimento, convenio, hospital
     return {
       nome_paciente: rawNome || "---",
       numero_atendimento: rawAtendimento || "---",
       data_atendimento: rawDataJoined || "12/05/2026",
-      convenio: rawConvenio || "---"
+      convenio: rawConvenio || "---",
+      hospital: rawHospital || "---"
     };
   });
   
@@ -722,6 +728,7 @@ function normalizeExtractionData(resultData: any): any {
     resultData.numero_atendimento = mainEt.numero_atendimento;
     resultData.data_atendimento = mainEt.data_atendimento;
     resultData.convenio = mainEt.convenio;
+    resultData.hospital = mainEt.hospital;
   }
   
   return resultData;
@@ -1184,6 +1191,7 @@ async function startServer() {
           nome_paciente: extracted_data.nome_paciente?.toUpperCase() || "",
           numero_atendimento: extracted_data.numero_atendimento || "",
           convenio: extracted_data.convenio?.toUpperCase() || "",
+          hospital: extracted_data.hospital?.toUpperCase() || "",
           data_atendimento: extracted_data.data_atendimento || ""
         };
       }
@@ -1259,7 +1267,8 @@ async function startServer() {
               nome_paciente: `PACIENTE MOCK ${i + 1}`,
               numero_atendimento: `100${i + 1}`,
               data_atendimento: "12/05/2026",
-              convenio: "UNIMED SIMULADA"
+              convenio: "UNIMED SIMULADA",
+              hospital: "HOSPITAL MOCK"
             }))
           }
         });
@@ -1345,6 +1354,8 @@ async function startServer() {
             numero_atendimento_confidence: 100,
             convenio: localParsed.convenio,
             convenio_confidence: 100,
+            hospital: localParsed.hospital,
+            hospital_confidence: 100,
             data_nascimento: localParsed.data_nascimento,
             data_nascimento_confidence: 100,
             etiquetas: [localParsed]
@@ -1386,7 +1397,8 @@ Campos típicos em etiquetas:
 - "Nº Atendimento", "ATEND", "REGISTRO" ou "ID": Identificador numérico do atendimento.
 - "Paciente", "NOME": Nome completo do paciente (geralmente em maiúsculas).
 - "Nascimento", "DATA NASC", "NASC": Data de nascimento (extraia no formato AAAA-MM-DD).
-- "Convênio", "OPERADORA": Nome do plano de saúde ou operadora.
+- "Convênio", "OPERADORA": Nome do plano de saúde ou operadora. O campo convenio é OBRIGATÓRIO. Procure especificamente por termos como 'Conv:', 'Convênio:', 'Plano:' na etiqueta. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
+- "Hospital", "CLÍNICA": Nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar.
 
 Siga estas regras rigorosas:
 1. Extraia os dados demográficos com máxima atenção a detalhes sutis.
@@ -1407,6 +1419,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
   "convenio_confidence": NUMBER,
   "data_nascimento": "STRING (Formato AAAA-MM-DD)",
   "data_nascimento_confidence": NUMBER,
+  "hospital": "STRING (Nome do hospital ou clínica)",
+  "hospital_confidence": NUMBER,
   "documentType": "etiqueta_hospitalar" | "nota_fiscal" | "outro",
   "summary": "STRING (Resumo técnico em português descrevendo a qualidade da leitura)",
   "etiquetas": [] (Array OBRIGATÓRIO contendo TODOS OS PACIENTES detectados na imagem, e não apenas um objeto único)
@@ -1445,6 +1459,11 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                 idade_confidence: { type: Type.NUMBER },
                 convenio: { type: Type.STRING },
                 convenio_confidence: { type: Type.NUMBER },
+                hospital: { 
+                  type: Type.STRING,
+                  description: "Nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar."
+                },
+                hospital_confidence: { type: Type.NUMBER },
                 data_nascimento: { type: Type.STRING },
                 data_nascimento_confidence: { type: Type.NUMBER },
                 etiquetas: {
@@ -1460,6 +1479,11 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                       idade_confidence: { type: Type.NUMBER },
                       convenio: { type: Type.STRING },
                       convenio_confidence: { type: Type.NUMBER },
+                      hospital: { 
+                        type: Type.STRING,
+                        description: "Nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar."
+                      },
+                      hospital_confidence: { type: Type.NUMBER },
                       data_nascimento: { type: Type.STRING },
                       data_nascimento_confidence: { type: Type.NUMBER }
                     }
@@ -1654,7 +1678,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               nome_paciente: `PACIENTE MOCK ${i + 1}`,
               numero_atendimento: `100${i + 1}`,
               data_atendimento: "12/05/2026",
-              convenio: "UNIMED SIMULADA"
+              convenio: "UNIMED SIMULADA",
+              hospital: "HOSPITAL MOCK"
             }))
           }
         });
@@ -1719,7 +1744,9 @@ Se, no entanto, a imagem contiver elementos de "NOTA FISCAL", "NFS-e" ou "TOMADO
 - O array "etiquetas" deve ser retornado vazio [].
 
 Para ETIQUETAS HOSPITALARES normais:
-Identifique os dados demográficos (nome_paciente, numero_atendimento, idade, convenio, data_nascimento) e preencha o array de etiquetas.
+Identifique os dados demográficos (nome_paciente, numero_atendimento, idade, convenio, hospital, data_nascimento) e preencha o array de etiquetas. 
+O campo "convenio" é OBRIGATÓRIO. Procure especificamente por termos como 'Conv:', 'Convênio:', 'Plano:' na etiqueta. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
+O campo "hospital" deve conter o nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar.
 
 Schema estruturado obrigatório (inclua *_confidence de 0-100):
 {
@@ -1731,6 +1758,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
   "idade_confidence": NUMBER,
   "convenio": "STRING",
   "convenio_confidence": NUMBER,
+  "hospital": "STRING",
+  "hospital_confidence": NUMBER,
   "data_nascimento": "STRING",
   "data_nascimento_confidence": NUMBER,
   "documentType": "etiqueta_hospitalar" | "nota_fiscal" | "outro",
@@ -1769,6 +1798,11 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               idade_confidence: { type: Type.NUMBER },
               convenio: { type: Type.STRING },
               convenio_confidence: { type: Type.NUMBER },
+              hospital: { 
+                type: Type.STRING,
+                description: "Nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar."
+              },
+              hospital_confidence: { type: Type.NUMBER },
               data_nascimento: { type: Type.STRING },
               data_nascimento_confidence: { type: Type.NUMBER },
               etiquetas: {
@@ -1784,6 +1818,11 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                     idade_confidence: { type: Type.NUMBER },
                     convenio: { type: Type.STRING },
                     convenio_confidence: { type: Type.NUMBER },
+                    hospital: { 
+                      type: Type.STRING,
+                      description: "Nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar."
+                    },
+                    hospital_confidence: { type: Type.NUMBER },
                     data_nascimento: { type: Type.STRING },
                     data_nascimento_confidence: { type: Type.NUMBER }
                   }
