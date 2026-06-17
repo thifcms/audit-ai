@@ -2125,6 +2125,9 @@ Diretrizes:
 
   // Serve Vite or Static files depending on ENV
   if (process.env.NODE_ENV !== "production") {
+    // Garante que a pasta public seja servida (manifest, sw, icons) 
+    app.use(express.static(path.join(process.cwd(), "public")));
+    
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
