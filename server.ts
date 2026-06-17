@@ -274,6 +274,14 @@ async function saveLearnedExample(
     ) / 3;
 
     const confidence = avgConfidence >= 75 ? "high" : "low";
+    
+    // Auto confidence promotion checks: nome, numero_atendimento, convenio and hospital must all be >= 90
+    const pNomConf = typeof resultData.nome_paciente_confidence === "number" ? resultData.nome_paciente_confidence : (typeof principalEtiqueta.nome_paciente_confidence === "number" ? principalEtiqueta.nome_paciente_confidence : 0);
+    const pNumConf = typeof resultData.numero_atendimento_confidence === "number" ? resultData.numero_atendimento_confidence : (typeof principalEtiqueta.numero_atendimento_confidence === "number" ? principalEtiqueta.numero_atendimento_confidence : 0);
+    const pConConf = typeof resultData.convenio_confidence === "number" ? resultData.convenio_confidence : (typeof principalEtiqueta.convenio_confidence === "number" ? principalEtiqueta.convenio_confidence : 0);
+    const pHosConf = typeof resultData.hospital_confidence === "number" ? resultData.hospital_confidence : (typeof principalEtiqueta.hospital_confidence === "number" ? principalEtiqueta.hospital_confidence : 0);
+
+    const auto_confidence_ok = (pNomConf >= 90) && (pNumConf >= 90) && (pConConf >= 90) && (pHosConf >= 90);
     const docId = admin.firestore().collection("learned_examples").doc().id;
 
     await db.collection("learned_examples").doc(docId).set({
@@ -282,13 +290,71 @@ async function saveLearnedExample(
       image_hash,
       extracted_data,
       confidence,
+      auto_confidence_ok,
+      corrected_by_user: false,
+      correction_checked_at: null,
       verified_by_user: false,
       created_at: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    console.log(`[Learned DB] Automatically saved learned example for ${hospital} with confidence ${confidence}`);
+    console.log(`[Learned DB] Automatically saved learned example for ${hospital} with confidence ${confidence}. Auto-promotion eligible: ${auto_confidence_ok}`);
   } catch (err) {
     console.error("[Learned DB] Error saving learned example:", err);
+  }
+}
+
+async function promoteAutoVerifiedExamples() {
+  try {
+    const db = getDB();
+    const snap = await db.collection("learned_examples")
+      .where("verified_by_user", "==", false)
+      .where("auto_confidence_ok", "==", true)
+      .where("corrected_by_user", "==", false)
+      .get();
+
+    if (snap.empty) {
+      return;
+    }
+
+    const now = Date.now();
+    const fortyEightHoursMs = 48 * 60 * 60 * 1000;
+    let promotedCount = 0;
+
+    const batch = db.batch();
+
+    snap.docs.forEach(doc => {
+      const data = doc.data();
+      const createdAt = data.created_at;
+      
+      let createdTimeMs = 0;
+      if (createdAt && typeof createdAt.toMillis === "function") {
+        createdTimeMs = createdAt.toMillis();
+      } else if (createdAt && createdAt.seconds) {
+        createdTimeMs = createdAt.seconds * 1000;
+      } else if (createdAt instanceof Date) {
+        createdTimeMs = createdAt.getTime();
+      } else if (typeof createdAt === "string") {
+        createdTimeMs = new Date(createdAt).getTime();
+      } else if (typeof createdAt === "number") {
+        createdTimeMs = createdAt;
+      }
+
+      if (createdTimeMs && (now - createdTimeMs >= fortyEightHoursMs)) {
+        batch.update(doc.ref, {
+          verified_by_user: true,
+          promoted_automatically: true,
+          promoted_at: admin.firestore.FieldValue.serverTimestamp()
+        });
+        promotedCount++;
+      }
+    });
+
+    if (promotedCount > 0) {
+      await batch.commit();
+      console.log(`[Promotion System] Automatically promoted ${promotedCount} high-confidence examples to verified=true after 48h elapsed.`);
+    }
+  } catch (err) {
+    console.error("[Promotion System Exception] Failed to run promoteAutoVerifiedExamples:", err);
   }
 }
 
@@ -1212,6 +1278,35 @@ async function startServer() {
     }
   });
 
+  // Mark corrected endpoint for MedNote and MedReconcile
+  app.post("/api/learned-examples/mark-corrected", async (req, res) => {
+    try {
+      const { image_hash } = req.body;
+      if (!image_hash) {
+        return res.status(400).json({ success: false, error: "O campo image_hash é obrigatório no corpo da requisição." });
+      }
+
+      const db = getDB();
+      const snaps = await db.collection("learned_examples").where("image_hash", "==", image_hash).limit(1).get();
+
+      if (snaps.empty) {
+        return res.status(404).json({ success: false, error: "Exemplo com este image_hash não encontrado." });
+      }
+
+      const docId = snaps.docs[0].id;
+      await db.collection("learned_examples").doc(docId).update({
+        corrected_by_user: true,
+        correction_checked_at: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      console.log(`[Learned DB] Example with image_hash ${image_hash} (doc: ${docId}) marked as corrected_by_user=true.`);
+      return res.status(200).json({ success: true, message: "Exemplo marcado como corrigido pelo usuário com sucesso." });
+    } catch (err: any) {
+      console.error("[Learned DB Mark Corrected User Error]", err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // --- API Middleware from Migrated Functions ---
   // Mount logic under /api
   const apiRouter = express.Router();
@@ -1253,6 +1348,9 @@ async function startServer() {
       if (!fileBase64) {
         return res.status(400).json({ error: "O campo fileBase64 é obrigatório." });
       }
+
+      // Fire-and-forget automatic promo check, running in background without blocking response
+      promoteAutoVerifiedExamples().catch(err => console.error("[Promotion Trigger Error]", err));
 
       if (MOCK_MODE) {
         console.log("[MOCK_MODE] Requisição recebida do MedReconcile. Ignorando Gemini API e devolvendo 18 pacientes simulados.");
@@ -1637,10 +1735,13 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
           .catch(err => console.error("Erro ao salvar exemplo aprendido em segundo plano:", err));
       }
 
+      const image_hash = getImageHash(fileBase64);
+
       return res.status(200).json({
         success: true,
         documentType: resultData.documentType || "outro",
         summary: resultData.summary || "Relatório gerado automaticamente por IA.",
+        image_hash: image_hash,
         data: resultData,
         usedModel: usedModel,
         usedProvider: usedProvider
@@ -1664,6 +1765,9 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       if (!fileBase64) {
         return res.status(400).json({ error: "O campo fileBase64 é obrigatório." });
       }
+
+      // Fire-and-forget automatic promo check, running in background without blocking response
+      promoteAutoVerifiedExamples().catch(err => console.error("[Promotion Trigger Error]", err));
 
       if (MOCK_MODE) {
         console.log("[MOCK_MODE] Requisição recebida do MedReconcile. Ignorando Gemini API e devolvendo 18 pacientes simulados.");

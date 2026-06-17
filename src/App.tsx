@@ -538,32 +538,6 @@ export default function App() {
 
       {/* MAIN CONTAINER WORKSPACE */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#060910] bg-[radial-gradient(#101626_1px,transparent_1px)] [background-size:24px_24px]">
-        {/* UPPER STATUS BAR / HEADER */}
-        <header className="h-16 border-b border-slate-950 px-8 flex items-center justify-between shrink-0 bg-[#070b13]/80 backdrop-blur-md">
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
-              {activeTab === 'dashboard' && 'Dashboard de Auditoria'}
-              {activeTab === 'documentos' && 'Diretório de Documentos Fiscais & Planilhas'}
-              {activeTab === 'auditorias' && 'Histórico de Atividades Auditadas'}
-              {activeTab === 'comparar' && 'Reconciliação & Comparador Inteligente'}
-              {activeTab === 'cruzamento' && 'Cruzamento Financeiro de Atendimentos'}
-              {activeTab === 'calculadora' && 'Central de Consultas e Cálculos com Inteligência Artificial'}
-              {activeTab === 'relatorios' && 'Análises de Desempenho & Repasse Contratual'}
-              {activeTab === 'treinar' && 'Treinamento Cognitivo e Regras de Negócio do Modelo'}
-              {activeTab === 'configuracoes' && 'Parâmetros e Configurações de API'}
-              {activeTab === 'teste-api' && 'Teste de Leitura OCR + Gemini IA'}
-            </h1>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {/* Status indicators */}
-            <div className="bg-[#0b1322] border border-emerald-500/10 px-3 py-1.5 rounded-full flex items-center gap-2 text-[11px] font-medium text-emerald-400 shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Gemini Conectado</span>
-            </div>
-          </div>
-        </header>
-
         {/* WORKSPACE INNER VIEWS */}
         <div className="flex-1 overflow-y-auto p-8">
           <ErrorBoundary key={activeTab} fallbackMessage={`Erro ao carregar a tela de ${activeTab}.`}>
@@ -636,9 +610,7 @@ export default function App() {
                       <span className="text-[10px] font-mono text-cyan-400 uppercase bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/10">Processamento em Série</span>
                     </div>
 
-                    <p className="text-xs text-slate-400 mb-6 leading-relaxed">
-                      Selecione dois arquivos para cruzar e conciliar de forma avançada: a lista de procedimentos faturados e o relatório de repasse do hospital parceiro.
-                    </p>
+                    <div className="mb-6" />
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {/* Dropzone 1 */}
@@ -845,7 +817,6 @@ export default function App() {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                     <div>
                       <h2 className="text-base font-bold text-slate-200">Fichas e Documentos Disponíveis</h2>
-                      <p className="text-xs text-slate-400 mt-1">Lista de planilhas e contratos de auditoria em anexo do sistema.</p>
                     </div>
 
                     <div className="flex gap-2">
@@ -944,8 +915,7 @@ export default function App() {
                 className="space-y-6"
               >
                 <div className="bg-[#0b1120] border border-slate-900 rounded-3xl p-6 shadow-2xl">
-                  <h2 className="text-base font-bold text-slate-200 mb-2">Histórico de Rodadas de Auditoria</h2>
-                  <p className="text-xs text-slate-400 mb-6">Auditorias arquivadas registradas e integradas automaticamente no Firestore.</p>
+                  <h2 className="text-base font-bold text-slate-200 mb-6">Histórico de Rodadas de Auditoria</h2>
 
                   <div className="space-y-4">
                     <div className="bg-[#070b13] border border-slate-900 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -1023,7 +993,6 @@ export default function App() {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-850 pb-4">
                     <div>
                       <h2 className="text-base font-bold text-slate-200">Reconciliação Ativa: Clínica vs Hospital</h2>
-                      <p className="text-xs text-slate-400 mt-1">Confronto inteligente de dados faturados e quantias repassadas.</p>
                       <div className="flex items-center gap-1.5 mt-2 text-[10px] text-slate-500">
                         <FileText className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                         <span>Faturamento: <strong className="text-slate-350">{selectedFilePatients}</strong></span>
@@ -1238,14 +1207,6 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-
-                    <div className="bg-[#0f172a]/65 border border-slate-850 rounded-2xl p-4 text-[11px] text-slate-450 mt-6 leading-relaxed">
-                      <div className="flex items-center gap-1.5 mb-2 text-cyan-400 font-bold uppercase tracking-wider text-[10px]">
-                        <Info className="w-3.5 h-3.5 shrink-0" />
-                        <span>Dica de IA</span>
-                      </div>
-                      Nossa inteligência artificial analisa e cruza informações diretamente do faturamento, do repasse e das bases de regras customizadas.
-                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -1371,7 +1332,6 @@ export default function App() {
 
                     <div>
                       <h2 className="text-base font-bold text-slate-200">Treinador Cognitivo de IA</h2>
-                      <p className="text-xs text-slate-400 mt-0.5">Defina regras personalizadas de faturamento médico ou repasse para calibrar a IA especialista.</p>
                     </div>
                     <span className="bg-[#2a1b41] text-purple-400 text-[10px] font-bold px-2 py-0.5 rounded border border-purple-800/10">Gemini 1.5 Pro Ativo</span>
                   </div>
@@ -1388,9 +1348,7 @@ export default function App() {
                           Atualizar
                         </button>
                       </div>
-                      <p className="text-[10px] text-slate-400 mb-4 leading-relaxed">
-                        Padrões neurais calibrados e detectados de forma autônoma. O sistema gera expressões regulares velozes e expande a massa neural coberta.
-                      </p>
+                      <div className="mb-4" />
 
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mb-5">
                         {/* LEFT COLUMN: MASSA NEURAL PERCENTAGE OVERVIEW */}
@@ -1433,10 +1391,6 @@ export default function App() {
                                 <p className="text-[9px] text-[#2dd4bf] font-medium font-mono leading-tight mt-0.5">Capacidade de Massa Neural Ativa</p>
                               </div>
                             </div>
-                          </div>
-
-                          <div className="border-t border-slate-900 pt-3 mt-2 text-[9px] text-slate-400 leading-relaxed font-mono">
-                            Índice de cobertura mapeada do faturamento com regras consolidadas no núcleo da IA. Limiar de redundância: <strong className="text-cyan-400">95% (Máximo)</strong>.
                           </div>
                         </div>
 
@@ -1598,9 +1552,7 @@ export default function App() {
                         <FileSpreadsheet className="w-4 h-4 text-cyan-400" />
                         <span>Amostras de Documento Vinculadas ({documents.length})</span>
                       </h4>
-                      <p className="text-[10px] text-slate-450 mb-3 leading-relaxed">
-                        Estes arquivos de contrato, faturamento e tabelas serão lidos sob os preceitos de Fine Tuning e System Instructions do Gemini para solidificar regras clínicas de contestação.
-                      </p>
+                      <div className="mb-3" />
                       
                       <div className="flex flex-wrap gap-2">
                         {documents.slice(0, 3).map((doc) => (
@@ -1679,7 +1631,6 @@ export default function App() {
                 <div className="bg-[#0b1120] border border-slate-900 rounded-3xl p-6 shadow-2xl space-y-6">
                   <div>
                     <h2 className="text-base font-bold text-slate-200">Definições da Aplicação</h2>
-                    <p className="text-xs text-slate-400 mt-1">Configure as chaves e comportamentos do motor Audit AI.</p>
                   </div>
 
                   <div className="space-y-4">
@@ -1697,9 +1648,6 @@ export default function App() {
                           />
                         </div>
                       </div>
-                      <p className="text-[10px] text-slate-500 mt-2.5 leading-relaxed">
-                        O motor DocEngine implementa um <strong>Circuito de Redundância e Failover em Cascata</strong>. Suas requisições utilizam a chave <code>V2_Gemini_API_Key</code> como canal primário, transicionando automaticamente para o Groq (Llama-3.3-70b-versatile) caso ocorram erros de limite ou cota (429).
-                      </p>
                     </div>
 
                     <div className="border-t border-slate-850 pt-4">
@@ -1713,9 +1661,6 @@ export default function App() {
                         <option value="fixo-flash">🎯 Fixo: gemini-3.1-pro-preview (Modelo Principal)</option>
                         <option value="fixo-lite">⚡ Fixo: gemini-3.1-flash-lite (Modelo Econômico)</option>
                       </select>
-                      <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
-                        Selecione <strong>Revezamento de Modelos</strong> para alternar automaticamente a ordem de processamento do Gemini (gemini-3.1-flash-lite, gemini-flash-latest, gemini-3.1-pro-preview) a cada requisição. Isso ajuda a utilizar as cotas e limites do Sandbox/Free Tier, evitando erros do tipo <code>RESOURCE_EXHAUSTED (429)</code> caso o saldo pré-pago de uma classe de modelos se esgote temporariamente.
-                      </p>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-slate-850 pt-4 font-sans text-xs">
@@ -1736,9 +1681,7 @@ export default function App() {
                       <CloudLightning className="w-5 h-5 text-cyan-400" />
                       <h3 className="text-sm font-bold text-slate-200">Gerador e Registrador de Chaves (Firestore Produção)</h3>
                     </div>
-                    <p className="text-xs text-slate-405 leading-relaxed font-normal text-slate-400">
-                      Como as credenciais locais da linha de comando na CLI são restritas no ambiente Sandbox, desenvolvemos este recurso especial que permite a você registrar as chaves obtidas e a base de conhecimento de regras diretamente no seu Firestore usando a conexão autenticada do seu navegador!
-                    </p>
+                    <div className="h-2" />
 
                     <div className="flex flex-wrap gap-3">
                       <button
