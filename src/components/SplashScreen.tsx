@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import LogoImage from '../assets/images/audit_ai_logo_1781728511867.jpg';
 
 export default function SplashScreen({ onComplete }: { onComplete: () => void }) {
   const [stage, setStage] = useState<'entry' | 'loop' | 'exit'>('entry');
@@ -66,10 +67,10 @@ export default function SplashScreen({ onComplete }: { onComplete: () => void })
             }
           `}</style>
 
-          {/* Holographic 3D Container */}
-          <div className="relative w-64 h-64 flex items-center justify-center perspective-[800px] mb-8">
+          {/* Holographic 3D Container with static image */}
+          <div className="relative w-72 h-72 flex items-center justify-center perspective-[800px] mb-8">
             
-            {/* Scan Line Effect */}
+            {/* Scan Line Effect over image */}
             {stage !== 'entry' && (
               <div 
                 className="absolute left-0 right-0 h-1 z-50 pointer-events-none"
@@ -93,85 +94,25 @@ export default function SplashScreen({ onComplete }: { onComplete: () => void })
               />
             )}
 
-            {/* Core / Nucleus */}
+            {/* Generated Image Container */}
             <motion.div
-              initial={stage === 'entry' ? { scale: 0, opacity: 0 } : false}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.8, type: 'spring', bounce: 0.6 }}
-              className="absolute z-30 w-8 h-8 rounded-full bg-cyan-300/20 flex items-center justify-center border border-cyan-200/50"
-              style={{
-                animation: stage === 'loop' ? 'pulseCore 2.5s ease-in-out infinite' : 'none'
-              }}
-            >
-              <div className="w-4 h-4 rounded-full bg-cyan-200 shadow-[0_0_12px_#5eead4]" />
-              <div className="absolute inset-0 rounded-full border border-white/80 scale-[1.3]" />
-              <div className="absolute inset-0 rounded-full border border-white/40 scale-[1.8]" />
-            </motion.div>
-
-            {/* Outer Ring */}
-            <motion.div
-              initial={stage === 'entry' ? { scale: 2, rotateX: 90, rotateY: 50, opacity: 0 } : false}
-              animate={{ scale: 1, rotateX: 60, rotateY: 15, opacity: 1 }}
+              initial={stage === 'entry' ? { scale: 1.5, rotateX: 60, rotateY: 30, opacity: 0 } : false}
+              animate={{ scale: 1, rotateX: 0, rotateY: 0, opacity: 1 }}
               transition={{ duration: 1.2, type: 'spring', bounce: 0.4 }}
-              className="absolute inset-0 z-10 rounded-full border border-cyan-400"
+              className="absolute inset-0 z-10 w-full h-full rounded-2xl overflow-hidden shadow-2xl"
               style={{
-                borderWidth: '4px',
-                borderStyle: 'dashed',
-                animation: stage === 'loop' ? 'ringRotateSlow 40s linear infinite' : 'none',
+                animation: stage === 'loop' ? 'pulseCore 2.5s ease-in-out infinite' : 'none',
                 transformStyle: 'preserve-3d'
               }}
             >
-              {/* Outer white segments simulated by an inner ring */}
-              <div className="absolute inset-[-8px] rounded-full border border-white/80 border-dotted opacity-50" style={{ borderWidth: '2px' }} />
-            </motion.div>
-
-            {/* Middle Ring */}
-            <motion.div
-              initial={stage === 'entry' ? { scale: 0.2, rotateX: -90, rotateY: -50, opacity: 0 } : false}
-              animate={{ scale: 0.75, rotateX: 60, rotateY: -15, opacity: 1 }}
-              transition={{ duration: 1.0, delay: 0.1, type: 'spring', bounce: 0.5 }}
-              className="absolute inset-0 z-20 m-auto rounded-full border-4 border-[#5eead4]"
-              style={{
-                borderStyle: 'dashed',
-                animation: stage === 'loop' ? 'ringRotateMedium 25s linear infinite' : 'none',
-                transformStyle: 'preserve-3d'
-              }}
-            >
-              {/* Solid Thin Ring attached between middle and inner */}
-              <div className="absolute inset-4 rounded-full border-[1.5px] border-[#5eead4] opacity-50" />
-            </motion.div>
-
-            {/* Inner Ring */}
-            <motion.div
-              initial={stage === 'entry' ? { scale: 3, rotateX: 0, rotateY: 90, opacity: 0 } : false}
-              animate={{ scale: 0.45, rotateX: 60, rotateY: 0, opacity: 1 }}
-              transition={{ duration: 1.1, delay: 0.2, type: 'spring', bounce: 0.6 }}
-              className="absolute inset-0 z-20 m-auto rounded-full border-[3px] border-[#5eead4]"
-              style={{
-                borderStyle: 'dashed',
-                borderWidth: '3px',
-                animation: stage === 'loop' ? 'ringRotateFast 12s linear infinite' : 'none',
-                transformStyle: 'preserve-3d'
-              }}
-            />
-
-            {/* Circuit endpoints visible in the background */}
-            <motion.div 
-               initial={{ opacity: 0 }}
-               animate={{ opacity: 0.6 }}
-               transition={{ delay: 1 }}
-               className="absolute inset-[-40px] z-0"
-            >
-              <svg width="100%" height="100%" viewBox="0 0 100 100">
-                <path d="M50 20 L50 5" stroke="#5eead4" strokeWidth="1" fill="none" />
-                <circle cx="50" cy="5" r="2" fill="#5eead4" />
-                <path d="M50 80 L50 95" stroke="#5eead4" strokeWidth="1" fill="none" />
-                <circle cx="50" cy="95" r="2" fill="#5eead4" />
-                <path d="M20 50 L5 50" stroke="#5eead4" strokeWidth="1" fill="none" />
-                <circle cx="5" cy="50" r="2" fill="#5eead4" />
-                <path d="M80 50 L95 50" stroke="#5eead4" strokeWidth="1" fill="none" />
-                <circle cx="95" cy="50" r="2" fill="#5eead4" />
-              </svg>
+              <img 
+                src={LogoImage} 
+                alt="Audit AI Logo" 
+                className="w-full h-full object-cover rounded-2xl"
+              />
+              
+              {/* Overlay highlight to match HUD glow */}
+              <div className="absolute inset-0 bg-cyan-400/10 pointer-events-none" style={{ mixBlendMode: 'screen' }} />
             </motion.div>
           </div>
 
