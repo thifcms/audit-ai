@@ -241,6 +241,12 @@ export default function App() {
     ? (summary.valorTotalDivergencia / summary.valorTotalFaturado) * 100 
     : 0;
 
+  const totalItemsCount = reconciliationItems.length;
+  const pagoPct = totalItemsCount > 0 ? (summary.pagosCount / totalItemsCount) * 100 : 0;
+  const glosPct = totalItemsCount > 0 ? (summary.glosasCount / totalItemsCount) * 100 : 0;
+  const parcPct = totalItemsCount > 0 ? (summary.parciaisCount / totalItemsCount) * 100 : 0;
+  const pendPct = totalItemsCount > 0 ? (summary.pendentesCount / totalItemsCount) * 100 : 0;
+
   // Multi-file Drag & Drop simulation
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'faturamento' | 'repasse') => {
     if (e.target.files && e.target.files[0]) {
@@ -1250,17 +1256,17 @@ export default function App() {
                         <svg className="w-44 h-44 transform -rotate-90" viewBox="0 0 42 42">
                           <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#111827" strokeWidth="4" />
                           
-                          {/* Success Pago 33.3% */}
-                          <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#10b981" strokeWidth="4" strokeDasharray="33.3 66.7" strokeDashoffset="0" />
+                          {/* Success Pago */}
+                          <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#10b981" strokeWidth="4" strokeDasharray={`${pagoPct} ${100 - pagoPct}`} strokeDashoffset="0" />
                           
-                          {/* Glosa 22.2% */}
-                          <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#ef4444" strokeWidth="4" strokeDasharray="22.2 77.8" strokeDashoffset="-33.3" />
+                          {/* Glosa */}
+                          <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#ef4444" strokeWidth="4" strokeDasharray={`${glosPct} ${100 - glosPct}`} strokeDashoffset={-pagoPct} />
                           
-                          {/* Parcial 22.2% */}
-                          <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#3b82f6" strokeWidth="4" strokeDasharray="22.2 77.8" strokeDashoffset="-55.5" />
+                          {/* Parcial */}
+                          <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#3b82f6" strokeWidth="4" strokeDasharray={`${parcPct} ${100 - parcPct}`} strokeDashoffset={-(pagoPct + glosPct)} />
                           
-                          {/* Outros 22.3% */}
-                          <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#eab308" strokeWidth="4" strokeDasharray="22.3 77.7" strokeDashoffset="-77.7" />
+                          {/* Outros */}
+                          <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#eab308" strokeWidth="4" strokeDasharray={`${pendPct} ${100 - pendPct}`} strokeDashoffset={-(pagoPct + glosPct + parcPct)} />
                         </svg>
                       </div>
                     </div>
@@ -1268,19 +1274,19 @@ export default function App() {
                     <div className="space-y-2 mt-4 text-xs font-medium">
                       <div className="flex items-center justify-between">
                         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> PAGO (Faturamento Correto)</span>
-                        <span className="text-slate-400">33.3% ({summary.pagosCount})</span>
+                        <span className="text-slate-400">{pagoPct.toFixed(1)}% ({summary.pagosCount})</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-400" /> GLOSA TOTAL</span>
-                        <span className="text-slate-400">22.2% ({summary.glosasCount})</span>
+                        <span className="text-slate-400">{glosPct.toFixed(1)}% ({summary.glosasCount})</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> GLOSA PARCIAL</span>
-                        <span className="text-slate-400">22.2% ({summary.parciaisCount})</span>
+                        <span className="text-slate-400">{parcPct.toFixed(1)}% ({summary.parciaisCount})</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" /> OUTROS / PENDENTES</span>
-                        <span className="text-slate-400">22.3% ({summary.pendentesCount})</span>
+                        <span className="text-slate-400">{pendPct.toFixed(1)}% ({summary.pendentesCount})</span>
                       </div>
                     </div>
                   </div>

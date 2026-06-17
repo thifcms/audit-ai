@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 
 // Let esbuild handle these CJS modules by importing them directly
-import admin from "firebase-admin";
+import { serverTimestamp } from "firebase/firestore";
 
 import { logMiddleware } from "./functions/src/middleware/logger.js";
 import { authMiddleware } from "./functions/src/middleware/auth.js";
@@ -28,17 +28,8 @@ dotenv.config();
 
 const MOCK_MODE = process.env.MOCK_MODE === 'true';
 
-// --- Init Firebase Admin ---
-import firebaseConfig from "./firebase-applet-config.json";
-try {
-  if (!admin.apps.length) {
-    admin.initializeApp({
-      projectId: firebaseConfig.projectId
-    });
-  }
-} catch (e) {
-  // Ignore if already initialized
-}
+// --- Init Firebase ---
+// Using modular SDK now inside db.js so no compat app init needed here.
 
 import crypto from "crypto";
 
@@ -253,12 +244,6 @@ async function saveLearnedExample(
     const image_hash = getImageHash(fileBase64);
     const hospital = detectHospitalName(extractedText || resultData.summary || "");
     
-    const existingRef = await db.collection("learned_examples").where("image_hash", "==", image_hash).limit(1).get();
-    if (!existingRef.empty) {
-      console.log(`[Learned DB] Example with image_hash ${image_hash} already exists. Skipping.`);
-      return;
-    }
-
     const principalEtiqueta = resultData?.etiquetas?.[0] || {};
     const extracted_data = {
       nome_paciente: principalEtiqueta.nome_paciente || resultData.nome_paciente || "",
@@ -282,7 +267,13 @@ async function saveLearnedExample(
     const pHosConf = typeof resultData.hospital_confidence === "number" ? resultData.hospital_confidence : (typeof principalEtiqueta.hospital_confidence === "number" ? principalEtiqueta.hospital_confidence : 0);
 
     const auto_confidence_ok = (pNomConf >= 90) && (pNumConf >= 90) && (pConConf >= 90) && (pHosConf >= 90);
-    const docId = admin.firestore().collection("learned_examples").doc().id;
+    const docId = db.collection("learned_examples").doc().id;
+
+    const existingRef = await db.collection("learned_examples").where("image_hash", "==", image_hash).limit(1).get();
+    if (!existingRef.empty) {
+      console.log(`[Learned DB] Example with image_hash ${image_hash} already exists. Skipping.`);
+      return;
+    }
 
     await db.collection("learned_examples").doc(docId).set({
       id: docId,
@@ -294,7 +285,7 @@ async function saveLearnedExample(
       corrected_by_user: false,
       correction_checked_at: null,
       verified_by_user: false,
-      created_at: admin.firestore.FieldValue.serverTimestamp()
+      created_at: serverTimestamp()
     });
 
     console.log(`[Learned DB] Automatically saved learned example for ${hospital} with confidence ${confidence}. Auto-promotion eligible: ${auto_confidence_ok}`);
@@ -316,10 +307,7 @@ async function promoteAutoVerifiedExamples() {
       return;
     }
 
-    const now = Date.now();
-    const fortyEightHoursMs = 48 * 60 * 60 * 1000;
     let promotedCount = 0;
-
     const batch = db.batch();
 
     snap.docs.forEach(doc => {
@@ -343,7 +331,7 @@ async function promoteAutoVerifiedExamples() {
         batch.update(doc.ref, {
           verified_by_user: true,
           promoted_automatically: true,
-          promoted_at: admin.firestore.FieldValue.serverTimestamp()
+          promoted_at: serverTimestamp()
         });
         promotedCount++;
       }
@@ -1106,6 +1094,7 @@ async function startServer() {
 
       await docRef.update(updateData);
       console.log(`[Learned DB] Verified example ${id} successfully`);
+
       return res.status(200).json({ success: true, message: "Exemplo verificado com sucesso." });
     } catch (err: any) {
       console.error("[Verify Error]", err);
@@ -1135,10 +1124,11 @@ async function startServer() {
       const docId = snaps.docs[0].id;
       await db.collection("learned_examples").doc(docId).update({
         corrected_by_user: true,
-        correction_checked_at: admin.firestore.FieldValue.serverTimestamp()
+        correction_checked_at: serverTimestamp()
       });
 
       console.log(`[Learned DB] Example with image_hash ${image_hash} (doc: ${docId}) marked as corrected_by_user=true.`);
+
       return res.status(200).json({ success: true, message: "Exemplo marcado como corrigido pelo usuário com sucesso." });
     } catch (err: any) {
       console.error("[Learned DB Mark Corrected User Error]", err);
@@ -1563,7 +1553,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       // Register Learning Log for Stats Panel (Background operation - no await for rapid response)
       try {
         db.collection("learning_logs").add({
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          timestamp: serverTimestamp(),
           hospital: hospitalName,
           provider: usedProvider,
           model: usedModel
