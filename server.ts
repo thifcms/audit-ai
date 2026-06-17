@@ -498,164 +498,7 @@ async function generateGeminiContentWithRetry(
 }
 
 function getHeuristicFallback(filename: string, expectedType: string): any {
-  const normName = (filename || "").toLowerCase();
-  
-  // Default values
-  let docType = (expectedType || "outro") === "outro" ? "etiqueta_hospitalar" : expectedType;
-  
-  if (normName.includes("nota") || normName.includes("nf") || normName.includes("fatura") || normName.includes("recibo")) {
-    docType = "nota_fiscal";
-  } else if (normName.includes("etiqueta") || normName.includes("hospitalar") || normName.includes("paciente")) {
-    docType = "etiqueta_hospitalar";
-  }
-
-  const disclaimer = "ℹ️ [MODO CONTINGÊNCIA - COTA EXHAUSTED (429)]: A chave de API Gemini do painel do Google AI Studio está temporariamente sem saldo pré-pago. O motor de contingência inteligente DocEngine assumiu o processamento do arquivo.";
-
-  if (docType === "nota_fiscal") {
-    // Generate realistic Nota Fiscal
-    let valorTotal = 4200;
-    let paciente = "Sandra Regina Souza";
-    let procedimento = "Ressonância Magnética do Joelho Dir.";
-    let atendimento = "45013";
-
-    if (normName.includes("marcos") || normName.includes("45012")) {
-      paciente = "Marcos Oliveira";
-      procedimento = "Consulta Ortopédica Especializada";
-      valorTotal = 1500;
-      atendimento = "45012";
-    } else if (normName.includes("roberta") || normName.includes("45014")) {
-      paciente = "Roberta Nascimento";
-      procedimento = "Procedimento Cirúrgico Artroscopia";
-      valorTotal = 1800;
-      atendimento = "45014";
-    } else if (normName.includes("jose") || normName.includes("josé") || normName.includes("45015")) {
-      paciente = "José Fernandes Silva";
-      procedimento = "Fisioterapia Reabilitação Postural (10s)";
-      valorTotal = 950;
-      atendimento = "45015";
-    } else if (normName.includes("amanda") || normName.includes("45016")) {
-      paciente = "Amanda Costa Melo";
-      procedimento = "Consulta Ortopédica Especializada";
-      valorTotal = 2400;
-      atendimento = "45016";
-    } else if (normName.includes("lucas") || normName.includes("45017")) {
-      paciente = "Lucas de Almeida";
-      procedimento = "Eletrocardiograma Repouso";
-      valorTotal = 1100;
-      atendimento = "45017";
-    } else if (normName.includes("bruno") || normName.includes("45018")) {
-      paciente = "Bruno Santos Guedes";
-      procedimento = "Infiltração Intra-articular Guiada";
-      valorTotal = 3000;
-      atendimento = "45018";
-    } else if (normName.includes("flavia") || normName.includes("flávia") || normName.includes("45019")) {
-      paciente = "Flávia Martins";
-      procedimento = "Consulta Ortopédica Especializada";
-      valorTotal = 850;
-      atendimento = "45019";
-    } else if (normName.includes("claudio") || normName.includes("cláudio") || normName.includes("45020")) {
-      paciente = "Cláudio Ferreira Lima";
-      procedimento = "Tomografia de Crânio Contr.";
-      valorTotal = 2100;
-      atendimento = "45020";
-    }
-
-    return {
-      documentType: "nota_fiscal",
-      summary: `${disclaimer} Nota Fiscal do paciente ${paciente} analisada com sucesso.`,
-      numeroNota: "NF-" + Math.floor(100000 + Math.random() * 900000),
-      dataEmissao: "15/05/2026",
-      emitente: "Hospital Geral Aliança S/A",
-      cnpjEmitente: "12.345.678/0001-90",
-      valorTotal: valorTotal,
-      paciente: paciente,
-      atendimento: atendimento,
-      itens: [
-        {
-          descricao: procedimento,
-          quantidade: 1,
-          valorUnitario: valorTotal,
-          valorTotal: valorTotal
-        }
-      ]
-    };
-  } else {
-    // Generate realistic Etiqueta Hospitalar
-    let paciente = "Sandra Regina Souza";
-    let atendimento = "45013";
-    let convenio = "Bradesco Saúde";
-    let dataAtendimento = "15/05/2026";
-    let dataNascimento = "12/08/1979";
-
-    if (normName.includes("marcos") || normName.includes("45012")) {
-      paciente = "Marcos Oliveira";
-      atendimento = "45012";
-      convenio = "Sulamérica";
-      dataAtendimento = "14/05/2026";
-      dataNascimento = "23/04/1988";
-    } else if (normName.includes("roberta") || normName.includes("45014")) {
-      paciente = "Roberta Nascimento";
-      atendimento = "45014";
-      convenio = "Amil Co-participativo";
-      dataAtendimento = "16/05/2026";
-      dataNascimento = "08/11/1991";
-    } else if (normName.includes("jose") || normName.includes("josé") || normName.includes("45015")) {
-      paciente = "José Fernandes Silva";
-      atendimento = "45015";
-      convenio = "Unimed Nacional";
-      dataAtendimento = "14/05/2026";
-      dataNascimento = "30/01/1965";
-    } else if (normName.includes("amanda") || normName.includes("45016")) {
-      paciente = "Amanda Costa Melo";
-      atendimento = "45016";
-      convenio = "Allianz Saúde";
-      dataAtendimento = "15/05/2026";
-      dataNascimento = "19/07/1995";
-    } else if (normName.includes("lucas") || normName.includes("45017")) {
-      paciente = "Lucas de Almeida";
-      atendimento = "45017";
-      convenio = "Care Plus Premium";
-      dataAtendimento = "15/05/2026";
-      dataNascimento = "04/03/1983";
-    } else if (normName.includes("bruno") || normName.includes("45018")) {
-      paciente = "Bruno Santos Guedes";
-      atendimento = "45018";
-      convenio = "Porto Seguro";
-      dataAtendimento = "17/05/2026";
-      dataNascimento = "11/12/1977";
-    } else if (normName.includes("flavia") || normName.includes("flávia") || normName.includes("45019")) {
-      paciente = "Flávia Martins";
-      atendimento = "45019";
-      convenio = "Sompo Saúde";
-      dataAtendimento = "15/05/2026";
-      dataNascimento = "22/10/1990";
-    } else if (normName.includes("claudio") || normName.includes("cláudio") || normName.includes("45020")) {
-      paciente = "Cláudio Ferreira Lima";
-      atendimento = "45020";
-      convenio = "Bradesco";
-      dataAtendimento = "12/05/2026";
-      dataNascimento = "15/06/1969";
-    }
-
-    return {
-      documentType: "etiqueta_hospitalar",
-      summary: `${disclaimer} Etiqueta hospitalar da paciente ${paciente} mapped and normalizada de forma heurística.`,
-      atendimento: atendimento,
-      dataAtendimento: dataAtendimento,
-      paciente: paciente,
-      convenio: convenio,
-      dataNascimento: dataNascimento,
-      etiquetas: [
-        {
-          atendimento: atendimento,
-          dataAtendimento: dataAtendimento,
-          paciente: paciente,
-          convenio: convenio,
-          dataNascimento: dataNascimento
-        }
-      ]
-    };
-  }
+  throw new Error("Não foi possível extrair os dados desta imagem, tente novamente ou insira manualmente");
 }
 
 function normalizeExtractionData(resultData: any): any {
@@ -1179,14 +1022,15 @@ async function startServer() {
       });
     } catch (err: any) {
       console.error("[Stats Error]", err);
-      if (err.message?.includes("Missing or insufficient permissions")) {
-        return res.status(403).json({
-          success: false,
-          error: "Erro de permissão no Firestore para a coleção de estatísticas.",
-          code: "firestore/permission-denied"
-        });
-      }
-      return res.status(500).json({ success: false, error: err.message });
+      return res.status(200).json({
+        success: false,
+        error: "Erro de permissão ou conexão no Firestore para a coleção de estatísticas.",
+        total_examples: 0,
+        by_hospital: {},
+        gemini_calls_last_7d: 0,
+        local_cache_hits_last_7d: 0,
+        code: err.message?.includes("Missing or insufficient permissions") ? "firestore/permission-denied" : "generic"
+      });
     }
   });
 
@@ -1217,14 +1061,12 @@ async function startServer() {
       });
     } catch (err: any) {
       console.error("[Examples Error]", err);
-      if (err.message?.includes("Missing or insufficient permissions")) {
-        return res.status(403).json({
-          success: false,
-          error: "Erro de permissão no Firestore para a lista de exemplos.",
-          code: "firestore/permission-denied"
-        });
-      }
-      return res.status(500).json({ success: false, error: err.message });
+      return res.status(200).json({
+        success: false,
+        error: "Erro de permissão ou conexão no Firestore para a lista de exemplos.",
+        examples: [],
+        code: err.message?.includes("Missing or insufficient permissions") ? "firestore/permission-denied" : "generic"
+      });
     }
   });
 
@@ -1267,14 +1109,11 @@ async function startServer() {
       return res.status(200).json({ success: true, message: "Exemplo verificado com sucesso." });
     } catch (err: any) {
       console.error("[Verify Error]", err);
-      if (err.message?.includes("Missing or insufficient permissions")) {
-        return res.status(403).json({
-          success: false,
-          error: "Erro de permissão no Firestore para verificar o exemplo.",
-          code: "firestore/permission-denied"
-        });
-      }
-      return res.status(500).json({ success: false, error: err.message });
+      return res.status(200).json({
+        success: false,
+        error: "Erro de permissão ou conexão no Firestore para verificar o exemplo.",
+        code: err.message?.includes("Missing or insufficient permissions") ? "firestore/permission-denied" : "generic"
+      });
     }
   });
 
@@ -1303,7 +1142,11 @@ async function startServer() {
       return res.status(200).json({ success: true, message: "Exemplo marcado como corrigido pelo usuário com sucesso." });
     } catch (err: any) {
       console.error("[Learned DB Mark Corrected User Error]", err);
-      return res.status(500).json({ success: false, error: err.message });
+      return res.status(200).json({
+        success: false,
+        error: "Erro de permissão ou conexão no Firestore: " + err.message,
+        code: err.message?.includes("Missing or insufficient permissions") ? "firestore/permission-denied" : "generic"
+      });
     }
   });
 

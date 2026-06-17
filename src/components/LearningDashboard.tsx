@@ -57,25 +57,47 @@ export default function LearningDashboard() {
   });
 
   const fetchData = async () => {
+    setLoading(true);
+    
+    // 1. Fetch Stats
     try {
       const statsRes = await fetch('/api/learning/stats');
-      const statsJSON = await statsRes.json();
-      if (statsJSON.success) {
-        setStats({
-          total_examples: statsJSON.total_examples,
-          by_hospital: statsJSON.by_hospital,
-          gemini_calls_last_7d: statsJSON.gemini_calls_last_7d,
-          local_cache_hits_last_7d: statsJSON.local_cache_hits_last_7d
-        });
-      }
-
-      const examplesRes = await fetch('/api/learning/examples');
-      const examplesJSON = await examplesRes.json();
-      if (examplesJSON.success) {
-        setExamples(examplesJSON.examples || []);
+      const text = await statsRes.text();
+      try {
+        const statsJSON = JSON.parse(text);
+        if (statsJSON.success) {
+          setStats({
+            total_examples: statsJSON.total_examples || 0,
+            by_hospital: statsJSON.by_hospital || {},
+            gemini_calls_last_7d: statsJSON.gemini_calls_last_7d || 0,
+            local_cache_hits_last_7d: statsJSON.local_cache_hits_last_7d || 0
+          });
+        } else {
+          console.warn('[Dashboard Stats warning]', statsJSON.error);
+        }
+      } catch (parseErr) {
+        console.error('Falha ao analisar JSON de estatísticas. Resposta recebida:', text.substring(0, 100), parseErr);
       }
     } catch (err) {
-      console.error('Falha ao buscar dados de aprendizado:', err);
+      console.error('Falha ao buscar estatísticas de aprendizado:', err);
+    }
+
+    // 2. Fetch Examples
+    try {
+      const examplesRes = await fetch('/api/learning/examples');
+      const text = await examplesRes.text();
+      try {
+        const examplesJSON = JSON.parse(text);
+        if (examplesJSON.success) {
+          setExamples(examplesJSON.examples || []);
+        } else {
+          console.warn('[Dashboard Examples warning]', examplesJSON.error);
+        }
+      } catch (parseErr) {
+        console.error('Falha ao analisar JSON de exemplos. Resposta recebida:', text.substring(0, 100), parseErr);
+      }
+    } catch (err) {
+      console.error('Falha ao buscar exemplos de aprendizado:', err);
     } finally {
       setLoading(false);
     }

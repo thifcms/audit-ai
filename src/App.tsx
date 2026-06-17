@@ -71,8 +71,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'documentos' | 'auditorias' | 'comparar' | 'calculadora' | 'relatorios' | 'treinar' | 'configuracoes' | 'teste-api'>('dashboard');
 
   // Core Data Base states
-  const [documents, setDocuments] = useState<DocumentRecord[]>(INITIAL_DOCUMENTS);
-  const [reconciliationItems, setReconciliationItems] = useState<PatientAuditItem[]>(SAMPLE_RECONCILIATION_RESULTS);
+  const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+  const [reconciliationItems, setReconciliationItems] = useState<PatientAuditItem[]>([]);
   const [isReconciling, setIsReconciling] = useState(false);
   const [isTrained, setIsTrained] = useState(true);
 
@@ -117,8 +117,8 @@ export default function App() {
   const [isCalculating, setIsCalculating] = useState(false);
 
   // Selector for uploading comparing lists
-  const [selectedFilePatients, setSelectedFilePatients] = useState<string | null>('Lista_Faturamento_Maio2026_ClinicaSaude.xlsx');
-  const [selectedFileHospital, setSelectedFileHospital] = useState<string | null>('Relatorio_Repasse_Maio2026_HospAlianca.csv');
+  const [selectedFilePatients, setSelectedFilePatients] = useState<string | null>(null);
+  const [selectedFileHospital, setSelectedFileHospital] = useState<string | null>(null);
 
   // Training state
   const [trainingLogs, setTrainingLogs] = useState<string[]>([]);
@@ -225,7 +225,21 @@ export default function App() {
     };
   };
 
+  const formatCompactCurrency = (value: number) => {
+    if (value >= 1000000) {
+      return `R$ ${(value / 1000000).toFixed(1).replace('.', ',')}M`;
+    }
+    if (value >= 1000) {
+      return `R$ ${(value / 1000).toFixed(1).replace('.', ',')}K`;
+    }
+    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  };
+
   const summary = calculateSummary(reconciliationItems);
+
+  const glosaPercent = summary.valorTotalFaturado > 0 
+    ? (summary.valorTotalDivergencia / summary.valorTotalFaturado) * 100 
+    : 0;
 
   // Multi-file Drag & Drop simulation
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'faturamento' | 'repasse') => {
@@ -558,8 +572,8 @@ export default function App() {
                     <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-600/5 rounded-full blur-2xl" />
                     <p className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">Docu Lido</p>
                     <div className="flex items-baseline gap-2 mt-2">
-                      <span className="text-3xl font-extrabold text-white tracking-tight">24</span>
-                      <span className="text-emerald-500 text-xs font-semibold">+18 esta semana</span>
+                      <span className="text-3xl font-extrabold text-white tracking-tight">{documents.length}</span>
+                      <span className="text-emerald-500 text-xs font-semibold">ativos carregados</span>
                     </div>
                     <p className="text-[10px] text-slate-500 mt-2 font-mono">Formatos: xlsx, csv, pdf, xml</p>
                   </div>
@@ -569,8 +583,8 @@ export default function App() {
                     <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-600/5 rounded-full blur-2xl" />
                     <p className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">Audi OK</p>
                     <div className="flex items-baseline gap-2 mt-2">
-                      <span className="text-3xl font-extrabold text-white tracking-tight">18</span>
-                      <span className="text-cyan-400 text-xs font-semibold">76.5% de repasses</span>
+                      <span className="text-3xl font-extrabold text-white tracking-tight">{summary.pagosCount}</span>
+                      <span className="text-cyan-400 text-xs font-semibold">{summary.taxaSucesso.toFixed(1)}% de repasses</span>
                     </div>
                     <p className="text-[10px] text-slate-500 mt-2 font-mono">Totalmente reconciliados</p>
                   </div>
@@ -580,8 +594,12 @@ export default function App() {
                     <div className="absolute top-0 right-0 w-32 h-32 bg-amber-600/5 rounded-full blur-2xl" />
                     <p className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">Divergências</p>
                     <div className="flex items-baseline gap-2 mt-2">
-                      <span className="text-3xl font-extrabold text-amber-400 tracking-tight">41</span>
-                      <span className="text-amber-500/90 text-xs font-semibold">Revisões pendentes</span>
+                      <span className="text-3xl font-extrabold text-amber-400 tracking-tight">
+                        {reconciliationItems.filter(i => i.divergencia > 0).length}
+                      </span>
+                      <span className="text-amber-500/90 text-xs font-semibold">
+                        {reconciliationItems.filter(i => i.status === 'PENDENTE').length} pendentes
+                      </span>
                     </div>
                     <p className="text-[10px] text-slate-500 mt-2 font-mono">Glosas totais e parciais</p>
                   </div>
@@ -591,7 +609,7 @@ export default function App() {
                     <div className="absolute top-0 right-0 w-32 h-32 bg-purple-600/5 rounded-full blur-2xl" />
                     <p className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">Cálc Realizado</p>
                     <div className="flex items-baseline gap-2 mt-2">
-                      <span className="text-3xl font-extrabold text-purple-400 tracking-tight">R$ 1.2M</span>
+                      <span className="text-3xl font-extrabold text-purple-400 tracking-tight">{formatCompactCurrency(summary.valorTotalFaturado)}</span>
                       <span className="text-indigo-400 text-xs font-semibold">Automação Completa</span>
                     </div>
                     <p className="text-[10px] text-slate-500 mt-2 font-mono">Economia de tempo humano</p>
@@ -1296,11 +1314,11 @@ export default function App() {
 
                         <div className="space-y-1.5 font-sans">
                           <div className="flex justify-between text-xs">
-                            <span className="text-slate-300 font-semibold">Maio 2026 (Atual - Faturamento R$ 1.2M)</span>
-                            <span className="text-red-400 font-extrabold">34.6% Glosa (Crítico)</span>
+                            <span className="text-slate-300 font-semibold">Maio 2026 (Atual - Faturamento {formatCompactCurrency(summary.valorTotalFaturado)})</span>
+                            <span className="text-red-400 font-extrabold">{glosaPercent.toFixed(1)}% Glosa {glosaPercent > 30 ? '(Crítico)' : glosaPercent > 15 ? '(Alerta)' : '(Estável)'}</span>
                           </div>
                           <div className="w-full bg-slate-950 h-2.5 rounded-full overflow-hidden">
-                            <div className="bg-red-500 h-full rounded-full" style={{ width: '34.6%' }} />
+                            <div className="bg-red-500 h-full rounded-full" style={{ width: `${glosaPercent}%` }} />
                           </div>
                         </div>
                       </div>
