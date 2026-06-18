@@ -2135,8 +2135,27 @@ Diretrizes:
     console.log("Iniciando servidor de desenvolvimento com middleware do Vite.");
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    
+    // Logging middleware for production debugging
+    app.use((req, res, next) => {
+      if (req.url !== '/' && !req.url.startsWith('/api/')) {
+        // console.log(`[Static] ${req.method} ${req.url}`);
+      }
+      next();
+    });
+
+    app.use(express.static(distPath, {
+      maxAge: '1d',
+      etag: true
+    }));
+
     app.get('*', (req, res) => {
+      // If it's a request for a file (has extension) or an API, and we reached here, it's a 404
+      if (req.url.includes('.') || req.url.startsWith('/api/')) {
+        return res.status(404).send('Not Found');
+      }
+      
+      // Otherwise, it's a client-side route, serve index.html
       res.sendFile(path.join(distPath, 'index.html'));
     });
     console.log("Iniciando servidor de produção com arquivos estáticos.");
