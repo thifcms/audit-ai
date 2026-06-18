@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -2134,7 +2135,12 @@ Diretrizes:
     app.use(vite.middlewares);
     console.log("Iniciando servidor de desenvolvimento com middleware do Vite.");
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    // In production, esbuild bundles server.ts into dist/server.cjs.
+    // If running from the bundle, __dirname is the dist folder itself and contains index.html.
+    // That makes it the most robust reference regardless of the process working directory on Render.
+    const distPath = fs.existsSync(path.join(__dirname, 'index.html'))
+      ? __dirname
+      : path.join(process.cwd(), 'dist');
     
     // Logging middleware for production debugging
     app.use((req, res, next) => {
