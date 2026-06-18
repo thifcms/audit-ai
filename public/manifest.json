@@ -1,23 +1,39 @@
 {
-  "name": "AuditAI Doc Engine",
+  "id": "audit-ai-doc-engine-suite",
+  "name": "AuditAI Doc Engine Suite",
   "short_name": "AuditAI",
-  "description": "Suite de Auditoria e Inteligência para Faturamento Médico",
-  "start_url": "/",
+  "description": "Inteligência Artificial para Auditoria e Faturamento Médico",
+  "start_url": "/?mode=standalone",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#070b13",
   "theme_color": "#070b13",
+  "categories": ["medical", "productivity"],
   "icons": [
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
