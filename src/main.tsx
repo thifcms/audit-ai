@@ -35,16 +35,10 @@ Node.prototype.insertBefore = function(newNode, referenceNode) {
   return originalInsertBefore.apply(this, [newNode, referenceNode]);
 };
 
-console.log("[Main] Starting initialization...");
-
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary fallbackMessage="Ops! Ocorreu um erro fatal no sistema.">
-      {(() => {
-        console.log("[Main] Rendering ErrorBoundary content...");
-        return <App />;
-      })()}
+      <App />
     </ErrorBoundary>
   </StrictMode>,
 );
-console.log("[Main] Initialization script finished.");

@@ -2127,9 +2127,6 @@ Diretrizes:
 
   // Serve Vite or Static files depending on ENV
   if (process.env.NODE_ENV !== "production") {
-    // Garante que a pasta public seja servida (manifest, sw, icons) 
-    app.use(express.static(path.join(process.cwd(), "public")));
-    
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -2138,23 +2135,8 @@ Diretrizes:
     console.log("Iniciando servidor de desenvolvimento com middleware do Vite.");
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    const publicPath = path.join(process.cwd(), 'public');
-    
-    // Serve both dist and public
-    app.use((req, res, next) => {
-      console.log(`[Server] Request: ${req.url}`);
-      next();
-    });
     app.use(express.static(distPath));
-    app.use(express.static(publicPath));
-    
     app.get('*', (req, res) => {
-      // If it looks like a request for an asset or API, don't serve index.html
-      if (req.url.includes('.') || req.url.includes('/api/')) {
-        console.log(`[Server] 404 for asset/API: ${req.url}`);
-        return res.status(404).send('Not found');
-      }
-      console.log(`[Server] Catch-all route for: ${req.url}`);
       res.sendFile(path.join(distPath, 'index.html'));
     });
     console.log("Iniciando servidor de produção com arquivos estáticos.");

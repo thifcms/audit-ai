@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import LearningDashboard from './components/LearningDashboard';
 import ReconciliationDashboard from './components/ReconciliationDashboard';
-import SplashScreen from './components/SplashScreen';
 import ApiTester from './components/ApiTester';
 import ErrorBoundary from './ErrorBoundary';
 import { db } from './firebase';
@@ -68,9 +67,6 @@ const SAMPLE_RECONCILIATION_RESULTS: PatientAuditItem[] = [
 ];
 
 export default function App() {
-  console.log("[App] Rendering...");
-  const [showSplash, setShowSplash] = useState(true);
-
   // Navigation Tabs state
   const [activeTab, setActiveTab] = useState<'dashboard' | 'documentos' | 'auditorias' | 'comparar' | 'calculadora' | 'relatorios' | 'treinar' | 'configuracoes' | 'teste-api'>('dashboard');
 
@@ -357,9 +353,7 @@ export default function App() {
   };
 
   return (
-    <>
-      {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
-      <div id="audit-app-root" className={`min-h-screen bg-[#070b13] text-slate-100 flex flex-col font-sans antialiased text-sm transition-opacity duration-1000 ${showSplash ? 'opacity-0 h-screen overflow-hidden' : 'opacity-100'}`}>
+    <div id="audit-app-root" className="min-h-screen bg-[#070b13] text-slate-100 flex flex-col font-sans antialiased text-sm">
         {/* 4000ms duration Toast Message notification */}
         <AnimatePresence>
         {toastMessage && (
@@ -1783,6 +1777,5 @@ export default function App() {
         </div>
       </main>
     </div>
-    </>
   );
 }
