@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import LogoImage from '../assets/images/audit_ai_tech_icon_1781783392357.jpg';
+import LogoImage from '../assets/images/audit_ai_icon_no_text_1781784978137.jpg';
 
 export default function SplashScreen({ onComplete }: { onComplete: () => void }) {
   const [stage, setStage] = useState<'entry' | 'loop' | 'exit'>('entry');

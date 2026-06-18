@@ -2,7 +2,7 @@ const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
 
-const sourceImage = path.join(__dirname, 'src', 'assets', 'images', 'audit_ai_tech_icon_1781783392357.jpg');
+const sourceImage = path.join(__dirname, 'src', 'assets', 'images', 'audit_ai_icon_no_text_1781784978137.jpg');
 const publicDir = path.join(__dirname, 'public');
 const distDir = path.join(__dirname, 'dist');
 

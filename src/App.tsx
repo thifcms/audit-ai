@@ -132,6 +132,46 @@ export default function App() {
   const [prodKeysGenerated, setProdKeysGenerated] = useState(false);
   const [neuralHospitals, setNeuralHospitals] = useState<any[]>([]);
 
+  // PWA Install State
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      // Prevent Chrome 67 and earlier from automatically showing the prompt
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setInstallPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    
+    // Also check if already installed to not show it.
+    window.addEventListener('appinstalled', () => {
+      setIsInstallable(false);
+      setInstallPrompt(null);
+      showToast('Audit IA instalada com sucesso!');
+    });
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!installPrompt) {
+      showToast('O PWA só pode ser instalado abrindo o app em uma nova aba fora do AI Studio.');
+      return;
+    }
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstallable(false);
+    }
+    setInstallPrompt(null);
+  };
+
   // Carregar padrões neurais aprendidos
   const fetchNeuralPatterns = async () => {
     try {
@@ -395,6 +435,16 @@ export default function App() {
 
           {/* Active status & profile info */}
           <div className="flex items-center gap-4">
+            {isInstallable && (
+              <button 
+                onClick={handleInstallClick}
+                className="hidden sm:flex bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white px-3 py-1.5 rounded-full items-center gap-1.5 text-[10px] font-bold shadow-lg shadow-cyan-500/20 transition-all border border-cyan-400/30"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Instalar App</span>
+              </button>
+            )}
+
             <div className="hidden sm:flex bg-[#0b1322] border border-emerald-500/10 px-3 py-1.5 rounded-full items-center gap-2 text-[10px] font-medium text-emerald-400 shadow-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span>Gemini Conectado</span>
