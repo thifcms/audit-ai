@@ -68,6 +68,7 @@ const SAMPLE_RECONCILIATION_RESULTS: PatientAuditItem[] = [
 ];
 
 export default function App() {
+  console.log("[App] Rendering...");
   const [showSplash, setShowSplash] = useState(true);
 
   // Navigation Tabs state

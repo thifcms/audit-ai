@@ -32,18 +32,35 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.url.includes('/api/') || event.request.method !== 'GET') {
+  // Skip cross-origin requests and non-GET requests
+  if (!event.request.url.startsWith(self.location.origin) || event.request.method !== 'GET') {
+    return;
+  }
+
+  // Skip API requests
+  if (event.request.url.includes('/api/')) {
     return;
   }
   
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request).catch(() => {
-        // Offline fallback for navigation requests (SPA)
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-      });
-    })
+    fetch(event.request)
+      .then((response) => {
+        // If valid response, potentially cache it or just return it
+        return response;
+      })
+      .catch(() => {
+        // Fallback to cache if network fails
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // If navigation, return index.html (SPA fallback)
+          if (event.request.mode === 'navigate') {
+            return caches.match('/index.html');
+          }
+          // Return a 404-like response or just let it fail
+          return new Response('Not found', { status: 404 });
+        });
+      })
   );
 });
