@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import LogoImage from '../assets/images/audit_ai_logo_1781728511867.jpg';
+import LogoImage from '../assets/images/audit_ai_icon_1781732574781.jpg';
+import BackupLogo from '../assets/images/audit_ai_logo_1781728511867.jpg';
 
 export default function SplashScreen({ onComplete }: { onComplete: () => void }) {
   const [stage, setStage] = useState<'entry' | 'loop' | 'exit'>('entry');
+  const [imgSrc, setImgSrc] = useState(LogoImage);
 
   useEffect(() => {
+    console.log("[SplashScreen] Initializing...");
     // 1.2s para a animação de entrada ("montagem")
     const entryTimer = setTimeout(() => {
       setStage('loop');
@@ -106,9 +109,13 @@ export default function SplashScreen({ onComplete }: { onComplete: () => void })
               }}
             >
               <img 
-                src={LogoImage} 
+                src={imgSrc} 
                 alt="Audit AI Logo" 
                 className="w-full h-full object-cover rounded-2xl"
+                onError={() => {
+                  console.warn("[SplashScreen] Logo fall-back triggered");
+                  setImgSrc(BackupLogo);
+                }}
               />
               
               {/* Overlay highlight to match HUD glow */}

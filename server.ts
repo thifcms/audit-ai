@@ -309,6 +309,8 @@ async function promoteAutoVerifiedExamples() {
 
     let promotedCount = 0;
     const batch = db.batch();
+    const now = Date.now();
+    const fortyEightHoursMs = 48 * 60 * 60 * 1000;
 
     snap.docs.forEach(doc => {
       const data = doc.data();
@@ -2136,7 +2138,12 @@ Diretrizes:
     console.log("Iniciando servidor de desenvolvimento com middleware do Vite.");
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    const publicPath = path.join(process.cwd(), 'public');
+    
+    // Serve both dist and public
     app.use(express.static(distPath));
+    app.use(express.static(publicPath));
+    
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
