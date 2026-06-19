@@ -397,7 +397,7 @@ async function generateGeminiContentWithRetry(
   systemInstruction?: string,
   responseMimeType?: string,
   responseSchema?: any
-): Promise<{ text: string; usedModel: string; usedKey: string }> {
+): Promise<{ text: string; usedModel: string; usedKey: string; quotaExhausted?: boolean }> {
   // Map prohibited models to valid ones
   const modelMap: Record<string, string> = {
     'gemini-1.5-flash': 'gemini-flash-latest',
@@ -475,7 +475,8 @@ async function generateGeminiContentWithRetry(
         return {
           text: text,
           usedModel: actualModelName,
-          usedKey: keyName
+          usedKey: keyName,
+          quotaExhausted: keyName === "GEMINI_API_KEY_PAID"
         };
       }
       throw new Error(`Nenhum texto retornado do modelo ${actualModelName} usando a chave ${keyName}.`);
@@ -603,7 +604,7 @@ function normalizeExtractionData(resultData: any): any {
       let cleanedNome = rawNome;
       
       // Clean up contaminated substrings
-      cleanedNome = cleanedNome.replace(/(?:m[eé]dico|dr\.?|assistente\s+social|senha\s+qc[^\s]*)/gi, "");
+      cleanedNome = cleanedNome.replace(/(?:m[eé]dico|\bdr\b\.?|assistente\s+social|senha\s+qc[^\s]*)/gi, "");
       // Clean up any extra slashes, hyphens, or spaces left
       cleanedNome = cleanedNome.replace(/^[-\/\s]+|[-\/\s]+$/g, "").replace(/\s+/g, " ");
       
@@ -1265,6 +1266,7 @@ async function startServer() {
       let usedModel = "";
       let usedProvider: "gemini" | "groq" | "heuristica" | "local_cache" = "gemini";
       let errorMsg = "";
+      let quotaExhausted = false;
 
       // 0. Preliminary Tesseract OCR/Text extraction so we can identify hospital & template cache
       let extractedText = "";
@@ -1508,6 +1510,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               success = true;
               usedModel = `${modelName} (${result.usedKey})`;
               usedProvider = "gemini";
+              quotaExhausted = !!result.quotaExhausted;
               console.log(`[Direct Extraction] Sucesso com o modelo Gemini: ${modelName} usando a chave ${result.usedKey}`);
               break;
             }
@@ -1611,7 +1614,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
         image_hash: image_hash,
         data: resultData,
         usedModel: usedModel,
-        usedProvider: usedProvider
+        usedProvider: usedProvider,
+        quotaExhausted: quotaExhausted
       });
 
     } catch (err: any) {
@@ -1621,7 +1625,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
         success: false,
         error: err.message || "Erro crítico durante a extração de dados.",
         usedModel: "N/A",
-        usedProvider: "gemini"
+        usedProvider: "gemini",
+        quotaExhausted: isQuota
       });
     }
   });
@@ -1683,6 +1688,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       let usedModel = "";
       let usedProvider: "gemini" | "groq" | "heuristica" = "gemini";
       let errorMsg = "";
+      let quotaExhausted = false;
 
       const filenameUpper = (filename || "").toUpperCase();
       const isNfsByFilename = filenameUpper.includes("NOTA") || filenameUpper.includes("NF") || filenameUpper.includes("FATURA") || filenameUpper.includes("RECIBO") || (expectedType && expectedType.toUpperCase() === "NOTA_FISCAL");
@@ -1854,6 +1860,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
             success = true;
             usedModel = `${modelName} (${result.usedKey})`;
             usedProvider = "gemini";
+            quotaExhausted = !!result.quotaExhausted;
             console.log(`[Direct Extraction] Sucesso com o modelo Gemini: ${modelName} usando a chave ${result.usedKey}`);
             break;
           }
@@ -1957,7 +1964,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
         summary: resultData.summary || "Relatório gerado automaticamente por IA.",
         data: resultData,
         usedModel: usedModel,
-        usedProvider: usedProvider
+        usedProvider: usedProvider,
+        quotaExhausted: quotaExhausted
       });
 
     } catch (err: any) {
@@ -1967,7 +1975,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
         success: false,
         error: err.message || "Erro crítico durante a extração de dados.",
         usedModel: "N/A",
-        usedProvider: "gemini"
+        usedProvider: "gemini",
+        quotaExhausted: isQuota
       });
     }
   });
@@ -2002,6 +2011,7 @@ Diretrizes:
       let usedModel = "";
       let success = false;
       let aiText = "";
+      let quotaExhausted = false;
 
       // 1. Try Gemini
       for (const m of models) {
@@ -2019,6 +2029,7 @@ Diretrizes:
           if (result.text) {
             aiText = result.text;
             usedModel = `${m} (${result.usedKey})`;
+            quotaExhausted = !!result.quotaExhausted;
             success = true;
             break;
           }
@@ -2036,13 +2047,17 @@ Diretrizes:
 
       res.status(200).json({
         text: aiText,
-        usedModel: usedModel
+        usedModel: usedModel,
+        quotaExhausted: quotaExhausted
       });
 
     } catch (err: any) {
       console.error("[Analyze Error]:", err);
       const isQuota = err.status === 429 || String(err.message).includes("Cota de processamento");
-      res.status(isQuota ? 429 : 500).json({ error: err.message || "Erro durante análise AI." });
+      res.status(isQuota ? 429 : 500).json({
+        error: err.message || "Erro durante análise AI.",
+        quotaExhausted: isQuota
+      });
     }
   });
 
