@@ -369,7 +369,9 @@ function getGeminiClient(): GoogleGenAI {
 
 // Keep track of which keys are currently depleted of limits or credits to automatically route around them dynamically.
 const keyDepletionStatus: Record<string, { depleted: boolean; lastChecked: number }> = {
-  V2_Gemini_API_Key: { depleted: false, lastChecked: 0 }
+  V2_Gemini_API_Key: { depleted: false, lastChecked: 0 },
+  GEMINI_API_KEY: { depleted: false, lastChecked: 0 },
+  GEMINI_API_KEY_PAID: { depleted: false, lastChecked: 0 }
 };
 
 // If a key has been marked as depleted for more than 5 minutes, we allow retrying it to handle credit refills or billing updates.
@@ -406,86 +408,115 @@ async function generateGeminiContentWithRetry(
 
   const actualModelName = modelMap[modelName] || modelName;
 
-  const keyName = process.env.V2_Gemini_API_Key ? "V2_Gemini_API_Key" : "GEMINI_API_KEY";
-  const apiKey = process.env.V2_Gemini_API_Key || process.env.GEMINI_API_KEY;
+  // Primary key candidates: GEMINI_API_KEY, falling back to V2_Gemini_API_Key
+  const primaryKeyName = process.env.GEMINI_API_KEY ? "GEMINI_API_KEY" : (process.env.V2_Gemini_API_Key ? "V2_Gemini_API_Key" : "GEMINI_API_KEY");
+  const primaryKeyValue = process.env.GEMINI_API_KEY || process.env.V2_Gemini_API_Key;
 
-  if (!apiKey) {
-    throw new Error("A chave Gemini não está configurada no ambiente (V2_Gemini_API_Key ou GEMINI_API_KEY).");
+  const keysToTry: { name: string; value: string | undefined }[] = [
+    { name: primaryKeyName, value: primaryKeyValue },
+    { name: "GEMINI_API_KEY_PAID", value: process.env.GEMINI_API_KEY_PAID }
+  ];
+
+  const validKeys = keysToTry.filter(k => !!k.value);
+  if (validKeys.length === 0) {
+    throw new Error("A chave Gemini não está configurada no ambiente (GEMINI_API_KEY ou GEMINI_API_KEY_PAID).");
   }
 
-  if (isKeyDepleted(keyName)) {
-    throw new Error(`A chave ${keyName} está temporariamente sem saldo/cota (Error 429).`);
+  // Filter keys that are not marked as depleted. If all configured keys are marked depleted, allow trying any of them.
+  let keysToAttempt = validKeys.filter(k => !isKeyDepleted(k.name));
+  if (keysToAttempt.length === 0) {
+    keysToAttempt = validKeys;
   }
 
-  try {
-    console.log(`[Gemini Retry Service] Tentando chamada utilizando chave: ${keyName}, modelo: ${actualModelName}...`);
-    const ai = new GoogleGenAI({ 
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
+  let lastError: any = null;
+
+  for (const k of keysToAttempt) {
+    const keyName = k.name;
+    const apiKey = k.value!;
+
+    try {
+      console.log(`[Gemini Retry Service] Tentando chamada utilizando chave: ${keyName}, modelo: ${actualModelName}...`);
+      const ai = new GoogleGenAI({ 
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
         }
+      });
+
+      // Ensure contents is in the correct format { parts: [...] } or [{ role: 'user', parts: [...] }]
+      let formattedContents: any = contents;
+      
+      // If it's the [filePart, promptPart] array from extraction
+      if (Array.isArray(contents)) {
+        if (contents.length > 0 && !contents[0].role) {
+          // Just parts
+          formattedContents = { parts: contents.map(p => typeof p === 'string' ? { text: p } : p) };
+        }
+      } else if (typeof contents === 'string') {
+        formattedContents = { parts: [{ text: contents }] };
       }
-    });
 
-    // Ensure contents is in the correct format { parts: [...] } or [{ role: 'user', parts: [...] }]
-    let formattedContents: any = contents;
-    
-    // If it's the [filePart, promptPart] array from extraction
-    if (Array.isArray(contents)) {
-      if (contents.length > 0 && !contents[0].role) {
-        // Just parts
-        formattedContents = { parts: contents.map(p => typeof p === 'string' ? { text: p } : p) };
+      const result = await ai.models.generateContent({
+        model: actualModelName,
+        contents: formattedContents,
+        config: {
+          systemInstruction,
+          responseMimeType,
+          responseSchema
+        }
+      });
+
+      const text = result.text;
+
+      if (text !== undefined) {
+        console.log(`[Gemini Retry Service] Sucesso utilizando a chave ${keyName} e modelo ${actualModelName}!`);
+        return {
+          text: text,
+          usedModel: actualModelName,
+          usedKey: keyName
+        };
       }
-    } else if (typeof contents === 'string') {
-      formattedContents = { parts: [{ text: contents }] };
-    }
-
-    const result = await ai.models.generateContent({
-      model: actualModelName,
-      contents: formattedContents,
-      config: {
-        systemInstruction,
-        responseMimeType,
-        responseSchema
+      throw new Error(`Nenhum texto retornado do modelo ${actualModelName} usando a chave ${keyName}.`);
+    } catch (err: any) {
+      lastError = err;
+      const errStr = String(err.message || err || "").toLowerCase();
+      const isDepletion = errStr.includes("429") || errStr.includes("depleted") || errStr.includes("exhausted") || errStr.includes("quota");
+      const is503 = errStr.includes("503") || errStr.includes("unavailable") || errStr.includes("high demand") || errStr.includes("temporary");
+      
+      if (is503 && actualModelName !== "gemini-flash-latest") {
+        console.warn(`[Gemini Retry Service] Modelo ${actualModelName} retornou indisponível (503). Acionando contingência imediata: alternando para gemini-flash-latest...`);
+        return generateGeminiContentWithRetry(
+          "gemini-flash-latest",
+          contents,
+          systemInstruction,
+          responseMimeType,
+          responseSchema
+        );
       }
-    });
 
-    const text = result.text;
-
-    if (text !== undefined) {
-      console.log(`[Gemini Retry Service] Sucesso utilizando a chave ${keyName} e modelo ${actualModelName}!`);
-      return {
-        text: text,
-        usedModel: actualModelName,
-        usedKey: keyName
-      };
+      if (isDepletion) {
+        console.warn(`[Gemini Circuit Breaker] Chave ${keyName} retornou exaustão de cota/saldo. Marcando como temporariamente desativada.`);
+        markKeyDepleted(keyName);
+      } else {
+        console.warn(`[Gemini Retry Service] Falha utilizando a chave ${keyName} e modelo ${actualModelName}:`, err.message || err);
+      }
     }
-    throw new Error(`Nenhum texto retornado do modelo ${actualModelName} usando a chave ${keyName}.`);
-  } catch (err: any) {
-    const errStr = String(err.message || err || "").toLowerCase();
-    const isDepletion = errStr.includes("429") || errStr.includes("depleted") || errStr.includes("exhausted") || errStr.includes("quota");
-    const is503 = errStr.includes("503") || errStr.includes("unavailable") || errStr.includes("high demand") || errStr.includes("temporary");
-    
-    if (is503 && actualModelName !== "gemini-flash-latest") {
-      console.warn(`[Gemini Retry Service] Modelo ${actualModelName} retornou indisponível (503). Acionando contingência imediata: alternando para gemini-flash-latest...`);
-      return generateGeminiContentWithRetry(
-        "gemini-flash-latest",
-        contents,
-        systemInstruction,
-        responseMimeType,
-        responseSchema
-      );
-    }
-
-    if (isDepletion) {
-      console.warn(`[Gemini Circuit Breaker] Chave ${keyName} retornou exaustão de cota/saldo. Marcando como temporariamente desativada.`);
-      markKeyDepleted(keyName);
-    } else {
-      console.warn(`[Gemini Retry Service] Falha utilizando a chave ${keyName} e modelo ${actualModelName}:`, err.message || err);
-    }
-    throw err;
   }
+
+  // If we exited the loop, it means all tried keys failed.
+  // Check if the last error was a quota/depletion error
+  const errStr = lastError ? String(lastError.message || lastError || "").toLowerCase() : "";
+  const isDepletion = errStr.includes("429") || errStr.includes("depleted") || errStr.includes("exhausted") || errStr.includes("quota");
+
+  if (isDepletion) {
+    const quotaError = new Error("Cota de processamento esgotada. Tente novamente mais tarde.");
+    (quotaError as any).status = 429;
+    throw quotaError;
+  }
+
+  throw lastError || new Error("Erro desconhecido ao processar requisição no Gemini.");
 }
 
 function getHeuristicFallback(filename: string, expectedType: string): any {
@@ -1585,7 +1616,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
 
     } catch (err: any) {
       console.error("[Direct Extraction Back Error] Erro geral no extrator:", err);
-      return res.status(500).json({
+      const isQuota = err.status === 429 || String(err.message).includes("Cota de processamento");
+      return res.status(isQuota ? 429 : 500).json({
         success: false,
         error: err.message || "Erro crítico durante a extração de dados.",
         usedModel: "N/A",
@@ -1930,7 +1962,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
 
     } catch (err: any) {
       console.error("[Direct Extraction Back Error] Erro geral no extrator:", err);
-      return res.status(500).json({
+      const isQuota = err.status === 429 || String(err.message).includes("Cota de processamento");
+      return res.status(isQuota ? 429 : 500).json({
         success: false,
         error: err.message || "Erro crítico durante a extração de dados.",
         usedModel: "N/A",
@@ -2008,7 +2041,8 @@ Diretrizes:
 
     } catch (err: any) {
       console.error("[Analyze Error]:", err);
-      res.status(500).json({ error: err.message || "Erro durante análise AI." });
+      const isQuota = err.status === 429 || String(err.message).includes("Cota de processamento");
+      res.status(isQuota ? 429 : 500).json({ error: err.message || "Erro durante análise AI." });
     }
   });
 
