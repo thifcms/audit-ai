@@ -1474,7 +1474,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                 data_nascimento_confidence: { type: Type.NUMBER },
                 data_atendimento: {
                   type: Type.STRING,
-                  description: "Data do atendimento, internação ou cirurgia do paciente na etiqueta hospitalar (geralmente formato DD/MM/AAAA ou similar). NÃO extraia a data de nascimento neste campo."
+                  description: "Data de entrada/atendimento/internação/cirurgia do paciente, geralmente identificada na etiqueta por rótulos como 'Dt.Entr:', 'Dt. Entr:', 'Data Entrada:', 'Atend:', 'Dt. Adm:', 'Admissão:' ou 'Internação:'. Formato esperado: string como aparece na etiqueta (ex: '05/06/2026'). NUNCA confunda com a data de nascimento (geralmente rotulada como 'Dt.Nasc:' ou 'Nasc:')."
                 },
                 data_atendimento_confidence: { type: Type.NUMBER },
                 etiquetas: {
@@ -1499,7 +1499,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                       data_nascimento_confidence: { type: Type.NUMBER },
                       data_atendimento: {
                         type: Type.STRING,
-                        description: "Data do atendimento, internação ou cirurgia do paciente na etiqueta hospitalar (geralmente formato DD/MM/AAAA ou similar). NÃO extraia a data de nascimento neste campo."
+                        description: "Data de entrada/atendimento/internação/cirurgia do paciente, geralmente identificada na etiqueta por rótulos como 'Dt.Entr:', 'Dt. Entr:', 'Data Entrada:', 'Atend:', 'Dt. Adm:', 'Admissão:' ou 'Internação:'. Formato esperado: string como aparece na etiqueta (ex: '05/06/2026'). NUNCA confunda com a data de nascimento (geralmente rotulada como 'Dt.Nasc:' ou 'Nasc:')."
                       },
                       data_atendimento_confidence: { type: Type.NUMBER }
                     }
@@ -1834,7 +1834,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               data_nascimento_confidence: { type: Type.NUMBER },
               data_atendimento: {
                 type: Type.STRING,
-                description: "Data do atendimento, internação ou cirurgia do paciente na etiqueta hospitalar (geralmente formato DD/MM/AAAA ou similar). NÃO extraia a data de nascimento neste campo."
+                description: "Data de entrada/atendimento/internação/cirurgia do paciente, geralmente identificada na etiqueta por rótulos como 'Dt.Entr:', 'Dt. Entr:', 'Data Entrada:', 'Atend:', 'Dt. Adm:', 'Admissão:' ou 'Internação:'. Formato esperado: string como aparece na etiqueta (ex: '05/06/2026'). NUNCA confunda com a data de nascimento (geralmente rotulada como 'Dt.Nasc:' ou 'Nasc:')."
               },
               data_atendimento_confidence: { type: Type.NUMBER },
               etiquetas: {
@@ -1859,7 +1859,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                     data_nascimento_confidence: { type: Type.NUMBER },
                     data_atendimento: {
                       type: Type.STRING,
-                      description: "Data do atendimento, internação ou cirurgia do paciente na etiqueta hospitalar (geralmente formato DD/MM/AAAA ou similar). NÃO extraia a data de nascimento neste campo."
+                      description: "Data de entrada/atendimento/internação/cirurgia do paciente, geralmente identificada na etiqueta por rótulos como 'Dt.Entr:', 'Dt. Entr:', 'Data Entrada:', 'Atend:', 'Dt. Adm:', 'Admissão:' ou 'Internação:'. Formato esperado: string como aparece na etiqueta (ex: '05/06/2026'). NUNCA confunda com a data de nascimento (geralmente rotulada como 'Dt.Nasc:' ou 'Nasc:')."
                     },
                     data_atendimento_confidence: { type: Type.NUMBER }
                   }
