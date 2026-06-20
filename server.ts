@@ -1463,10 +1463,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                 numero_atendimento_confidence: { type: Type.NUMBER },
                 idade: { type: Type.NUMBER },
                 idade_confidence: { type: Type.NUMBER },
-                convenio: {
-                  type: Type.STRING,
-                  description: "Nome principal da operadora de convênio/plano de saúde, APENAS o nome da empresa. Remova qualquer código numérico e hífen antes do nome (ex: '26 -', '24-'). Remova também qualquer informação de categoria de plano que apareça DEPOIS do nome da operadora (como 'Plano: Especial 100', 'Plano: Nacional', etc) — essa é uma informação diferente e não faz parte do nome da operadora. Exemplo real: se o texto for 'Convenio: 26 - Sul America Plano: Especial 100', o campo convenio deve ser exatamente 'Sul America', nada mais. Outros exemplos esperados: 'SulAmérica', 'Bradesco Saúde', 'Amil', 'Porto Seguro', 'Unimed', 'Particular'."
-                },
+                convenio: { type: Type.STRING },
                 convenio_confidence: { type: Type.NUMBER },
                 hospital: { 
                   type: Type.STRING,
@@ -1491,10 +1488,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                       numero_atendimento_confidence: { type: Type.NUMBER },
                       idade: { type: Type.NUMBER },
                       idade_confidence: { type: Type.NUMBER },
-                      convenio: {
-                        type: Type.STRING,
-                        description: "Nome principal da operadora de convênio/plano de saúde, APENAS o nome da empresa. Remova qualquer código numérico e hífen antes do nome (ex: '26 -', '24-'). Remova também qualquer informação de categoria de plano que apareça DEPOIS do nome da operadora (como 'Plano: Especial 100', 'Plano: Nacional', etc) — essa é uma informação diferente e não faz parte do nome da operadora. Exemplo real: se o texto for 'Convenio: 26 - Sul America Plano: Especial 100', o campo convenio deve ser exatamente 'Sul America', nada mais. Outros exemplos esperados: 'SulAmérica', 'Bradesco Saúde', 'Amil', 'Porto Seguro', 'Unimed', 'Particular'."
-                      },
+                      convenio: { type: Type.STRING },
                       convenio_confidence: { type: Type.NUMBER },
                       hospital: { 
                         type: Type.STRING,
@@ -1829,10 +1823,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               numero_atendimento_confidence: { type: Type.NUMBER },
               idade: { type: Type.NUMBER },
               idade_confidence: { type: Type.NUMBER },
-              convenio: {
-                type: Type.STRING,
-                description: "Nome principal da operadora de convênio/plano de saúde, APENAS o nome da empresa. Remova qualquer código numérico e hífen antes do nome (ex: '26 -', '24-'). Remova também qualquer informação de categoria de plano que apareça DEPOIS do nome da operadora (como 'Plano: Especial 100', 'Plano: Nacional', etc) — essa é uma informação diferente e não faz parte do nome da operadora. Exemplo real: se o texto for 'Convenio: 26 - Sul America Plano: Especial 100', o campo convenio deve ser exatamente 'Sul America', nada mais. Outros exemplos esperados: 'SulAmérica', 'Bradesco Saúde', 'Amil', 'Porto Seguro', 'Unimed', 'Particular'."
-              },
+              convenio: { type: Type.STRING },
               convenio_confidence: { type: Type.NUMBER },
               hospital: { 
                 type: Type.STRING,
@@ -1857,10 +1848,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                     numero_atendimento_confidence: { type: Type.NUMBER },
                     idade: { type: Type.NUMBER },
                     idade_confidence: { type: Type.NUMBER },
-                    convenio: {
-                      type: Type.STRING,
-                      description: "Nome principal da operadora de convênio/plano de saúde, APENAS o nome da empresa. Remova qualquer código numérico e hífen antes do nome (ex: '26 -', '24-'). Remova também qualquer informação de categoria de plano que apareça DEPOIS do nome da operadora (como 'Plano: Especial 100', 'Plano: Nacional', etc) — essa é uma informação diferente e não faz parte do nome da operadora. Exemplo real: se o texto for 'Convenio: 26 - Sul America Plano: Especial 100', o campo convenio deve ser exatamente 'Sul America', nada mais. Outros exemplos esperados: 'SulAmérica', 'Bradesco Saúde', 'Amil', 'Porto Seguro', 'Unimed', 'Particular'."
-                    },
+                    convenio: { type: Type.STRING },
                     convenio_confidence: { type: Type.NUMBER },
                     hospital: { 
                       type: Type.STRING,
