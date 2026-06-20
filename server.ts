@@ -1396,22 +1396,30 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
 Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
         } else {
           systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano).
-Diretrizes de extração para ETIQUETAS:
-As etiquetas hospitalares são frequentemente térmicas, pequenas e podem estar levemente apagadas ou borradas. Use o contexto para decifrar.
+Diretrizes de extração para ETIQUETAS E TELAS DE SISTEMA DIGITAL:
+A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação com seções como "DADOS DO PACIENTE" ou "INFORMAÇÕES DA CIRURGIA"). Use o contexto para decifrar e extrair as informações corretas.
 
-Campos típicos em etiquetas: 
-- "Nº Atendimento", "ATEND", "REGISTRO" ou "ID": Identificador numérico do atendimento.
-- "Paciente", "NOME": Nome completo do paciente (geralmente em maiúsculas).
-- "Nascimento", "DATA NASC", "NASC": Data de nascimento (extraia no formato AAAA-MM-DD).
-- "Convênio", "OPERADORA": Nome do plano de saúde ou operadora. O campo convenio é OBRIGATÓRIO. Procure especificamente por termos como 'Conv:', 'Convênio:', 'Plano:' na etiqueta. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
-- "Hospital", "CLÍNICA": Nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar.
+Campos típicos e variações de rótulos esperados:
+- "Nº Atendimento", "ATEND", "REGISTRO", "Prontuario" ou "ID": Identificador numérico do atendimento.
+- "Paciente", "NOME", "Nome Pac.": Nome completo do paciente (geralmente em maiúsculas).
+  * Para fotos de telas de sistema: O nome do paciente frequentemente aparece após rótulos como "Nome:" ou "Paciente:". ATENÇÃO EXTREMA: Diferencie sempre o nome do paciente de nomes de médicos ou profissionais de saúde que possam constar na imagem (geralmente identificados por títulos como "Dr.", "Dra." ou acompanhados do número de CRM, ex: 'Dr. Thiago Andre...'). NUNCA extraia o nome do médico como nome do paciente.
+  * Para etiquetas físicas: Mantenha o reconhecimento já existente para formatos típicos como "Leito: X / Nome" ou "Nome Pac.:".
+- "Nascimento", "DATA NASC", "NASC", "DTNasc": Data de nascimento do paciente (extraia no formato AAAA-MM-DD se possível).
+- "Data de Atendimento/Cirurgia/Internação": Data do procedimento ou entrada.
+  * Para fotos de telas de sistema: Busque por "Data da Cirurgia:", "Data de Entrada", "Data Agendada", "Data Internação" ou "Dt. Cirurgia:" como fontes válidas adicionais para este campo.
+  * Para etiquetas físicas: Mantenha a busca pelos termos existentes como "Dt.Entr:", "Atend:", "Dt. Adm:", "Admissão:", "Internação:", etc.
+- "Convênio", "OPERADORA": Nome do plano de saúde ou operadora. O campo convenio é OBRIGATÓRIO.
+  * Para fotos de telas de sistema: Busque por "Classe:" ou "Classe de convênio" como sinônimo para termo de convênio e operadora de saúde.
+  * Para etiquetas físicas: Mantenha a busca existente por termos como 'Conv:', 'Convênio:', 'Plano:'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
+- "Hospital", "CLÍNICA", "Setor": Nome do hospital, clínica ou setor, geralmente na primeira linha, cabeçalho ou campo dedicado da tela.
 
 Siga estas regras rigorosas:
-1. Extraia os dados demográficos com máxima atenção a detalhes sutis.
-2. Identifique múltiplos registros se houver mais de uma etiqueta na foto (preencha o array 'etiquetas' se houver vários).
-3. Para etiquetas apagadas, tente reconstruir os nomes e números a partir das letras visíveis.
-4. Retorne EXCLUSIVAMENTE o JSON no schema solicitado.
-5. Se encontrar algo que pareça um número de atendimento mas o campo estiver com confiança baixa, tente validar se os caracteres fazem sentido para um ID hospitalar.
+1. Identidade de Telas de Sistema e Filtragem de Ruído: Fotos de telas de sistemas de faturamento/cirurgia contêm ruído visual abundante (botões de interface, campos vazios, termos repetidos das abas do sistema ou texto de outras seções). Ignore qualquer ruído ou duplicados parciais e extraia estritamente os campos demográficos solicitados que forem legíveis e inequívocos.
+2. Extraia os dados demográficos com máxima atenção a detalhes sutis.
+3. Identifique múltiplos registros se houver mais de uma etiqueta na foto (preencha o array 'etiquetas' se houver vários).
+4. Para etiquetas apagadas ou exibições ruidosas, tente reconstruir os dados de forma lógica e contextualizada.
+5. Retorne EXCLUSIVAMENTE o JSON no schema solicitado.
+6. Se encontrar algo que pareça um número de atendimento mas o campo estiver com confiança baixa, tente validar se os caracteres fazem sentido para um ID hospitalar.
 
 Schema estruturado obrigatório (inclua *_confidence de 0-100):
 {
@@ -1758,8 +1766,8 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
 9. Retorne um array de etiquetas vazio [] para o campo "etiquetas", mantendo o tipo do array para compatibilidade.
 Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
       } else {
-        systemPrompt = `Você é um sistema especialista em faturamento hospitalar e etiquetas hospitalares.
-Se a imagem for identificada como uma etiqueta hospitalar, use o schema de etiqueta usual.
+        systemPrompt = `Você é um sistema especialista em faturamento hospitalar e etiquetas hospitalares/telas de sistema.
+Se a imagem for identificada como uma etiqueta hospitalar ou foto de tela de sistema, use o schema de etiqueta usual.
 Se, no entanto, a imagem contiver elementos de "NOTA FISCAL", "NFS-e" ou "TOMADOR DE SERVIÇOS" (seja de prefeitura, Nibo ou etc.), extraia como uma NOTA FISCAL (documentType: "nota_fiscal") e siga estritamente estas regras:
 - O campo "emitente" deve ser obrigatoriamente preenchido com os dados do TOMADOR DE SERVIÇOS (o hospital/empresa contratante), NUNCA os dados do emitente/prestador original de serviços.
 - O campo "cnpjEmitente" deve ser o CNPJ do TOMADOR DE SERVIÇOS.
@@ -1770,10 +1778,14 @@ Se, no entanto, a imagem contiver elementos de "NOTA FISCAL", "NFS-e" ou "TOMADO
 - O array "itens" deve conter os procedimentos.
 - O array "etiquetas" deve ser retornado vazio [].
 
-Para ETIQUETAS HOSPITALARES normais:
-Identifique os dados demográficos (nome_paciente, numero_atendimento, idade, convenio, hospital, data_nascimento) e preencha o array de etiquetas. 
-O campo "convenio" é OBRIGATÓRIO. Procure especificamente por termos como 'Conv:', 'Convênio:', 'Plano:' na etiqueta. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
-O campo "hospital" deve conter o nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar.
+Para ETIQUETAS HOSPITALARES normais ou TELAS DE SISTEMA DIGITAL:
+A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação com campos como "DADOS DO PACIENTE" ou "INFORMAÇÕES DA CIRURGIA").
+Identifique os dados demográficos (nome_paciente, numero_atendimento, idade, convenio, hospital, data_nascimento) e preencha o array de etiquetas seguindo estas regras aditivas:
+1. Identificação do Paciente: O nome do paciente geralmente está ao lado ou abaixo de rótulos como "Nome:" ou "Paciente:". Diferencie sempre do nome de qualquer médico ou profissional de saúde listado na imagem (frequentemente precedidos por "Dr.", "Dra." ou acompanhados do CRM). Conserve também reconhecimento de formatos como "Leito: X / Nome" para etiquetas físicas.
+2. Data do Atendimento/Cirurgia/Internação: Para telas de sistema, inclua a busca pelo termo "Data da Cirurgia:", "Data de Entrada", "Data Agendada", "Data Internação" ou "Dt. Cirurgia:". Conserve termos de etiquetas físicas como "Dt.Entr:", "Atend:", "Dt. Adm:", "Admissão:", "Internação:", etc.
+3. Identificação do Convênio: Para telas de sistema, inclua a busca pelo termo "Classe:" ou "Classe de convênio" como sinônimo completo de convênio. Conserve termos de etiquetas físicas como 'Conv:', 'Convênio:', 'Plano:', 'OPERADORA'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
+4. Ignorar Ruídos Visuais: Ignore botões, caixas de interface vazias, termos duplicados do layout de abas e textos secundários irrelevantes.
+5. O campo "hospital" deve conter o nome do hospital, clínica ou setor, geralmente no topo, cabeçalho ou campo dedicado da tela.
 
 Schema estruturado obrigatório (inclua *_confidence de 0-100):
 {
