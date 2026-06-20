@@ -524,6 +524,26 @@ function getHeuristicFallback(filename: string, expectedType: string): any {
   throw new Error("Não foi possível extrair os dados desta imagem, tente novamente ou insira manualmente");
 }
 
+function parseBrazilianDecimal(val: any): number {
+  if (val === undefined || val === null) return 0;
+  if (typeof val === "number") return val;
+  if (typeof val !== "string") return Number(val) || 0;
+  
+  // Clean string val
+  let clean = val.replace(/r\$\s*/gi, "").trim();
+  // If it contains dots and a comma (e.g. 1.500,00)
+  if (clean.includes(".") && clean.includes(",")) {
+    // Remove dots (thousands separators) and replace comma with dot
+    clean = clean.replace(/\./g, "").replace(/,/g, ".");
+  } else if (clean.includes(",")) {
+    // If it contains only a comma (e.g. 1500,00)
+    clean = clean.replace(/,/g, ".");
+  }
+  
+  const parsed = parseFloat(clean);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
 function normalizeExtractionData(resultData: any): any {
   if (!resultData) return { etiquetas: [] };
   console.log('--- RAW EXTRACTION DATA ---');
@@ -550,10 +570,10 @@ function normalizeExtractionData(resultData: any): any {
     resultData.dataEmissao = dataEmissaoVal ? String(dataEmissaoVal).trim() : "";
 
     const valorTotalVal = resultData.valorTotal || resultData.valor_total || resultData.valorTotalServicos || resultData.valor_total_servicos || resultData.valor_servicos;
-    resultData.valorTotal = valorTotalVal ? Number(valorTotalVal) || 0 : 0;
+    resultData.valorTotal = parseBrazilianDecimal(valorTotalVal);
 
     const valorLiquidoVal = resultData.valorLiquido || resultData.valor_liquido || resultData.valorLiquidoServicos || resultData.valor_liquido_faturado;
-    resultData.valorLiquido = valorLiquidoVal ? Number(valorLiquidoVal) || 0 : (resultData.valorTotal || 0);
+    resultData.valorLiquido = valorLiquidoVal ? parseBrazilianDecimal(valorLiquidoVal) : (resultData.valorTotal || 0);
 
     if (!resultData.itens || !Array.isArray(resultData.itens)) {
       resultData.itens = [];
@@ -566,11 +586,20 @@ function normalizeExtractionData(resultData: any): any {
     resultData.etiquetas = [];
   }
   
+  // Clean root level convenio to inherit if needed
+  const rootConvenio = resultData.convenio;
+  let cleanRootConvenio = "";
+  if (typeof rootConvenio === "string") {
+    cleanRootConvenio = rootConvenio.trim().toUpperCase();
+    if (cleanRootConvenio === "---" || cleanRootConvenio === "N/A" || cleanRootConvenio === "VAZIO" || cleanRootConvenio === "OUTROS" || cleanRootConvenio === "OUTRO") {
+      cleanRootConvenio = "";
+    }
+  }
+
   // If the root object itself has extraction fields, push it to the etiquetas array as the first element if etiquetas is empty
   const rootPatientName = resultData.nome_paciente || resultData.paciente;
   const rootAtendimento = resultData.numero_atendimento || resultData.atendimento;
-  const rootData = resultData.data_atendimento || resultData.dataAtendimento || resultData.data_nascimento || resultData.dataNascimento;
-  const rootConvenio = resultData.convenio;
+  const rootData = resultData.data_atendimento || resultData.dataAtendimento;
   
   if (rootPatientName || rootAtendimento) {
     // Check if it's already in the tags
@@ -595,7 +624,7 @@ function normalizeExtractionData(resultData: any): any {
     // 1. Get raw values
     let rawNome = et.nome_paciente || et.paciente || "";
     let rawAtendimento = et.numero_atendimento || et.atendimento || "";
-    let rawDataStr = et.data_atendimento || et.dataAtendimento || et.data_nascimento || et.dataNascimento || "";
+    let rawDataStr = et.data_atendimento || et.dataAtendimento || "";
     let rawConvenio = et.convenio || "";
     let rawHospital = et.hospital || "";
     
@@ -625,6 +654,12 @@ function normalizeExtractionData(resultData: any): any {
     if (typeof rawConvenio === "string") {
       rawConvenio = rawConvenio.trim().toUpperCase();
     }
+    // Inherit from root level if individual is empty/---/null
+    if (!rawConvenio || rawConvenio === "---" || rawConvenio === "VAZIO" || rawConvenio === "N/A") {
+      if (cleanRootConvenio) {
+        rawConvenio = cleanRootConvenio;
+      }
+    }
     
     if (typeof rawHospital === "string") {
       rawHospital = rawHospital.trim().toUpperCase();
@@ -637,12 +672,16 @@ function normalizeExtractionData(resultData: any): any {
       rawDataJoined = JSON.stringify(rawDataStr);
     }
     
+    if (rawDataJoined === "12/05/2026") {
+      rawDataJoined = ""; // Explicitly clear any lingering default date
+    }
+    
     // Return precisely the unified structured object with exact keys:
     // nome_paciente, numero_atendimento, data_atendimento, convenio, hospital
     return {
       nome_paciente: rawNome || "---",
       numero_atendimento: rawAtendimento || "---",
-      data_atendimento: rawDataJoined || "12/05/2026",
+      data_atendimento: rawDataJoined || "", // Removed default "12/05/2026"
       convenio: rawConvenio || "---",
       hospital: rawHospital || "---"
     };
@@ -1433,6 +1472,11 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                 hospital_confidence: { type: Type.NUMBER },
                 data_nascimento: { type: Type.STRING },
                 data_nascimento_confidence: { type: Type.NUMBER },
+                data_atendimento: {
+                  type: Type.STRING,
+                  description: "Data do atendimento, internação ou cirurgia do paciente na etiqueta hospitalar (geralmente formato DD/MM/AAAA ou similar). NÃO extraia a data de nascimento neste campo."
+                },
+                data_atendimento_confidence: { type: Type.NUMBER },
                 etiquetas: {
                   type: Type.ARRAY,
                   items: {
@@ -1452,7 +1496,12 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                       },
                       hospital_confidence: { type: Type.NUMBER },
                       data_nascimento: { type: Type.STRING },
-                      data_nascimento_confidence: { type: Type.NUMBER }
+                      data_nascimento_confidence: { type: Type.NUMBER },
+                      data_atendimento: {
+                        type: Type.STRING,
+                        description: "Data do atendimento, internação ou cirurgia do paciente na etiqueta hospitalar (geralmente formato DD/MM/AAAA ou similar). NÃO extraia a data de nascimento neste campo."
+                      },
+                      data_atendimento_confidence: { type: Type.NUMBER }
                     }
                   }
                 },
@@ -1473,8 +1522,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                   description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais, preencha este campo OBRIGATORIAMENTE com o CNPJ do TOMADOR DE SERVIÇOS (o hospital ou contratante listado como tomador/cliente). NUNCA preencha com o CNPJ do prestador. Deixe em branco se for etiqueta." 
                 },
                 valorTotal: { 
-                  type: Type.NUMBER, 
-                  description: "O valor total líquido ou dos serviços da Nota Fiscal. Deixe zerado se for etiqueta." 
+                  type: Type.STRING, 
+                  description: "O valor total bruto ou dos serviços faturados na Nota Fiscal (ex: 'R$ 1.500,00' ou '1500,00'). Deixe em branco ou zerado se for etiqueta." 
                 },
                 valorLiquido: {
                   type: Type.NUMBER,
@@ -1783,6 +1832,11 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               hospital_confidence: { type: Type.NUMBER },
               data_nascimento: { type: Type.STRING },
               data_nascimento_confidence: { type: Type.NUMBER },
+              data_atendimento: {
+                type: Type.STRING,
+                description: "Data do atendimento, internação ou cirurgia do paciente na etiqueta hospitalar (geralmente formato DD/MM/AAAA ou similar). NÃO extraia a data de nascimento neste campo."
+              },
+              data_atendimento_confidence: { type: Type.NUMBER },
               etiquetas: {
                 type: Type.ARRAY,
                 items: {
@@ -1802,7 +1856,12 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                     },
                     hospital_confidence: { type: Type.NUMBER },
                     data_nascimento: { type: Type.STRING },
-                    data_nascimento_confidence: { type: Type.NUMBER }
+                    data_nascimento_confidence: { type: Type.NUMBER },
+                    data_atendimento: {
+                      type: Type.STRING,
+                      description: "Data do atendimento, internação ou cirurgia do paciente na etiqueta hospitalar (geralmente formato DD/MM/AAAA ou similar). NÃO extraia a data de nascimento neste campo."
+                    },
+                    data_atendimento_confidence: { type: Type.NUMBER }
                   }
                 }
               },
@@ -1823,8 +1882,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                 description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais, preencha este campo OBRIGATORIAMENTE com o CNPJ do TOMADOR DE SERVIÇOS (o hospital ou contratante listado como tomador/cliente). NUNCA preencha com o CNPJ do prestador. Deixe em branco se for etiqueta." 
               },
               valorTotal: { 
-                type: Type.NUMBER, 
-                description: "O valor total líquido ou dos serviços da Nota Fiscal. Deixe zerado se for etiqueta." 
+                type: Type.STRING, 
+                description: "O valor total bruto ou dos serviços faturados na Nota Fiscal (ex: 'R$ 1.500,00' ou '1500,00'). Deixe em branco ou zerado se for etiqueta." 
               },
               valorLiquido: {
                 type: Type.NUMBER,
