@@ -1396,8 +1396,8 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
 Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
         } else {
           systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano).
-Diretrizes de extração para ETIQUETAS E TELAS DE SISTEMA DIGITAL:
-A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação com seções como "DADOS DO PACIENTE" ou "INFORMAÇÕES DA CIRURGIA"). Use o contexto para decifrar e extrair as informações corretas.
+Diretrizes de extração para ETIQUETAS, TELAS DE SISTEMA DIGITAL E AGENDAS EM TABELA:
+A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação ou telas de agenda/consultório hospitalar). Use o contexto para decifrar e extrair as informações corretas.
 
 Campos típicos e variações de rótulos esperados:
 - "Nº Atendimento", "ATEND", "REGISTRO", "Prontuario" ou "ID": Identificador numérico do atendimento.
@@ -1413,23 +1413,33 @@ Campos típicos e variações de rótulos esperados:
   * Para etiquetas físicas: Mantenha a busca existente por termos como 'Conv:', 'Convênio:', 'Plano:'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
 - "Hospital", "CLÍNICA", "Setor": Nome do hospital, clínica ou setor, geralmente na primeira linha, cabeçalho ou campo dedicado da tela.
 
+DIRETRIZES ESPECÍFICAS PARA TABELAS DE AGENDA/CONSULTÓRIO (MÚLTIPLOS PACIENTES POR FOTO):
+Caso a imagem seja uma foto de tela de agenda ou lista de consultório hospitalar em formato de tabela:
+- Identifique a estrutura de tabela onde cada linha ou registro possui informações dispostas na seguinte ordem ou formato semelhante: Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade | Status2
+- Exemplo real de linha: '5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026 13:27:40 42a'
+- Para cada uma das linhas detectadas na tabela, extraia um item correspondente no array 'etiquetas' preenchendo:
+  * nome_paciente: Nome completo do paciente (ex: 'Rafael de Oliveira Barbosa')
+  * numero_atendimento: O identificador numérico de atendimento (primeiro campo numérico da linha, ex: '5315008')
+  * convenio: Nome limpo do convênio/plano de saúde (ex: 'Sul América', sem truncamentos como 'SUL AMÉ...')
+  * data_atendimento: A data do atendimento extraída de campos como 'Data/Hora' (ex: '23/06/2026' ou '2026-06-23')
+
 Siga estas regras rigorosas:
 1. Identidade de Telas de Sistema e Filtragem de Ruído: Fotos de telas de sistemas de faturamento/cirurgia contêm ruído visual abundante (botões de interface, campos vazios, termos repetidos das abas do sistema ou texto de outras seções). Ignore qualquer ruído ou duplicados parciais e extraia estritamente os campos demográficos solicitados que forem legíveis e inequívocos.
 2. Extraia os dados demográficos com máxima atenção a detalhes sutis.
-3. Identifique múltiplos registros se houver mais de uma etiqueta na foto (preencha o array 'etiquetas' se houver vários).
+3. Identifique múltiplos registros se houver mais de uma etiqueta ou linha de tabela na foto (preencha o array 'etiquetas' com todos os registros válidos identificados).
 4. Para etiquetas apagadas ou exibições ruidosas, tente reconstruir os dados de forma lógica e contextualizada.
 5. Retorne EXCLUSIVAMENTE o JSON no schema solicitado.
 6. Se encontrar algo que pareça um número de atendimento mas o campo estiver com confiança baixa, tente validar se os caracteres fazem sentido para um ID hospitalar.
 
 Schema estruturado obrigatório (inclua *_confidence de 0-100):
 {
-  "nome_paciente": "STRING (Nome completo em MAIÚSCULAS)",
+  "nome_paciente": "STRING (Nome completo em MAIÚSCULAS do primeiro paciente ou principal)",
   "nome_paciente_confidence": NUMBER,
-  "numero_atendimento": "STRING (Apenas os dígitos do ID de atendimento)",
+  "numero_atendimento": "STRING (Apenas os dígitos do ID de atendimento do primeiro paciente ou principal)",
   "numero_atendimento_confidence": NUMBER,
   "idade": NUMBER (Calculado a partir da data de nascimento se presente),
   "idade_confidence": NUMBER,
-  "convenio": "STRING (Nome do convênio ou 'SUS' se não identificado)",
+  "convenio": "STRING (Nome do convênio do primeiro paciente ou principal)",
   "convenio_confidence": NUMBER,
   "data_nascimento": "STRING (Formato AAAA-MM-DD)",
   "data_nascimento_confidence": NUMBER,
@@ -1766,9 +1776,9 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
 9. Retorne um array de etiquetas vazio [] para o campo "etiquetas", mantendo o tipo do array para compatibilidade.
 Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
       } else {
-        systemPrompt = `Você é um sistema especialista em faturamento hospitalar e etiquetas hospitalares/telas de sistema.
-Se a imagem for identificada como uma etiqueta hospitalar ou foto de tela de sistema, use o schema de etiqueta usual.
-Se, no entanto, a imagem contiver elementos de "NOTA FISCAL", "NFS-e" ou "TOMADOR DE SERVIÇOS" (seja de prefeitura, Nibo ou etc.), extraia como uma NOTA FISCAL (documentType: "nota_fiscal") e siga estritamente estas regras:
+        systemPrompt = `Você é um sistema especialista em faturamento hospitalar, etiquetas hospitalares e telas de sistema/agendas.
+Se a imagem for identificada como uma etiqueta hospitalar ou foto de tela de sistema/agenda, use o schema de etiqueta usual.
+Se, no entanto, a imagem contiver elements de "NOTA FISCAL", "NFS-e" ou "TOMADOR DE SERVIÇOS" (seja de prefeitura, Nibo ou etc.), extraia como uma NOTA FISCAL (documentType: "nota_fiscal") e siga estritamente estas regras:
 - O campo "emitente" deve ser obrigatoriamente preenchido com os dados do TOMADOR DE SERVIÇOS (o hospital/empresa contratante), NUNCA os dados do emitente/prestador original de serviços.
 - O campo "cnpjEmitente" deve ser o CNPJ do TOMADOR DE SERVIÇOS.
 - O campo "dataEmissao" deve ser a data de emissão.
@@ -1778,26 +1788,31 @@ Se, no entanto, a imagem contiver elementos de "NOTA FISCAL", "NFS-e" ou "TOMADO
 - O array "itens" deve conter os procedimentos.
 - O array "etiquetas" deve ser retornado vazio [].
 
-Para ETIQUETAS HOSPITALARES normais ou TELAS DE SISTEMA DIGITAL:
-A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação com campos como "DADOS DO PACIENTE" ou "INFORMAÇÕES DA CIRURGIA").
+Para ETIQUETAS HOSPITALARES normais, TELAS DE SISTEMA DIGITAL OU AGENDAS EM TABELA:
+A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação ou telas de agenda/consultório).
 Identifique os dados demográficos (nome_paciente, numero_atendimento, idade, convenio, hospital, data_nascimento) e preencha o array de etiquetas seguindo estas regras aditivas:
 1. Identificação do Paciente: O nome do paciente geralmente está ao lado ou abaixo de rótulos como "Nome:" ou "Paciente:". Diferencie sempre do nome de qualquer médico ou profissional de saúde listado na imagem (frequentemente precedidos por "Dr.", "Dra." ou acompanhados do CRM). Conserve também reconhecimento de formatos como "Leito: X / Nome" para etiquetas físicas.
 2. Data do Atendimento/Cirurgia/Internação: Para telas de sistema, inclua a busca pelo termo "Data da Cirurgia:", "Data de Entrada", "Data Agendada", "Data Internação" ou "Dt. Cirurgia:". Conserve termos de etiquetas físicas como "Dt.Entr:", "Atend:", "Dt. Adm:", "Admissão:", "Internação:", etc.
 3. Identificação do Convênio: Para telas de sistema, inclua a busca pelo termo "Classe:" ou "Classe de convênio" como sinônimo completo de convênio. Conserve termos de etiquetas físicas como 'Conv:', 'Convênio:', 'Plano:', 'OPERADORA'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
-4. Ignorar Ruídos Visuais: Ignore botões, caixas de interface vazias, termos duplicados do layout de abas e textos secundários irrelevantes.
-5. O campo "hospital" deve conter o nome do hospital, clínica ou setor, geralmente no topo, cabeçalho ou campo dedicado da tela.
+4. Tabelas de Agenda/Consultório: Se a imagem contiver uma estrutura de tabela com múltiplos pacientes, cada linha correspondendo a um atendimento na seguinte ordem ou formato semelhante: Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade | Status2 (Ex: '5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026 13:27:40 42a'), extraia para cada uma das linhas detectadas na tabela um item no array 'etiquetas' com:
+   * nome_paciente: Nome completo do paciente (ex: 'Rafael de Oliveira Barbosa')
+   * numero_atendimento: O identificador numérico do atendimento (primeiro campo numérico da linha, ex: '5315008')
+   * convenio: Nome limpo do convênio/plano de saúde (ex: 'Sul América', sem truncamentos como 'SUL AMÉ...')
+   * data_atendimento: A data do atendimento extraída de campos como 'Data/Hora' (ex: '23/06/2026' ou '2026-06-23')
+5. Ignorar Ruídos Visuais: Ignore botões, caixas de interface vazias, termos duplicados do layout de abas e textos secundários irrelevantes.
+6. O campo "hospital" deve conter o nome do hospital, clínica ou setor, geralmente no topo, cabeçalho ou campo dedicado da tela.
 
 Schema estruturado obrigatório (inclua *_confidence de 0-100):
 {
-  "nome_paciente": "STRING (Nome completo em MAIÚSCULAS)",
+  "nome_paciente": "STRING (Nome completo em MAIÚSCULAS do primeiro paciente ou principal)",
   "nome_paciente_confidence": NUMBER,
-  "numero_atendimento": "STRING (Apenas os dígitos do ID de atendimento)",
+  "numero_atendimento": "STRING (Apenas os dígitos do ID de atendimento do primeiro paciente ou principal)",
   "numero_atendimento_confidence": NUMBER,
   "idade": NUMBER,
   "idade_confidence": NUMBER,
-  "convenio": "STRING",
+  "convenio": "STRING (Nome do convênio do primeiro paciente ou principal)",
   "convenio_confidence": NUMBER,
-  "hospital": "STRING",
+  "hospital": "STRING (Nome do hospital ou clínica)",
   "hospital_confidence": NUMBER,
   "data_nascimento": "STRING",
   "data_nascimento_confidence": NUMBER,
