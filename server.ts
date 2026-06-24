@@ -1383,16 +1383,24 @@ async function startServer() {
         if (isNfs) {
           systemPrompt = `Você é um sistema especialista em faturamento hospitalar e notas fiscais de altíssima precisão (nível OCR Humano).
 Você está processando uma Nota Fiscal de Serviço Eletrônica (NFS-e / Prefeitura / Nibo).
-DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
+DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS E REGRAS FINANCEIRAS ADITIVAS PARA NFS-e:
 1. O campo "documentType" deve ser definido obrigatoriamente como "nota_fiscal".
 2. O campo "emitente" deve ser obrigatoriamente preenchido com a razão social ou nome fantasia do TOMADOR DE SERVIÇOS (o hospital/cliente listado como tomador, pagador ou tomador de serviços). NÃO use o prestador de serviços.
 3. O campo "cnpjEmitente" deve ser preenchido com o CNPJ do TOMADOR DE SERVIÇOS.
 4. O campo "numeroNota" deve ser o número identificador da nota fiscal (ex: encontre o número único identificador, como "991" no canto superior direito).
 5. O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão" ou similar (ex: "15/05/2026", preencha no formato DD/MM/AAAA ou AAAA-MM-DD).
-6. O campo "valorTotal" deve ser o valor líquido ou total do documento ("Valor de Serviços", "Valor dos Serviços", "Valor Líquido", etc.).
-7. O campo "valorLiquido" deve ser o valor líquido real após deduções/retenções de tributos (geralmente sob o nome de 'Valor Líquido' da nota). Se não houver retenções (como PIS, COFINS, CSLL, IR, ISS), preencha o mesmo valor presente no campo "valorTotal".
-8. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
-9. Retorne um array de etiquetas vazio [] para o campo "etiquetas", mantendo o tipo do array para compatibilidade.
+
+HIERARQUIA FINANCEIRA PARA NOTAS FISCAIS:
+- valorTotal (valor bruto): valor total dos serviços prestados, geralmente no topo ou meio da nota em destaque (ex: "Valor de Serviços", "Valor dos Serviços", etc.).
+- valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal.
+
+IDENTIFICAÇÃO DE PACIENTES, CONVÊNIOS E DATAS EM NOTAS FISCAIS:
+- Nome do paciente: em notas fiscais, o paciente raramente é o "Tomador do Serviço". Procure o nome do paciente nos campos "Discriminação dos Serviços", "Observações" ou "Informações Complementares" da nota e preencha no campo "nome_paciente" (e também no array "etiquetas" se aplicável).
+- Convênio: procure por logotipos ou menções textuais de operadoras de saúde (ex: Unimed, Bradesco, SulAmérica, Amil, Allianz, etc.) tanto no campo "Tomador do Serviço" quanto na descrição dos serviços, e preencha no campo "convenio".
+- Data de atendimento: procure pela data em que o procedimento foi realizado. Se não houver data de atendimento explícita no documento, use a data de emissão da nota como fallback ("data_atendimento").
+
+6. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
+7. Se um paciente específico for identificado na nota fiscal usando as regras acima, você pode incluir o paciente no array "etiquetas" preenchendo seus dados; caso contrário, retorne o array "etiquetas" vazio [].
 Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
         } else {
           systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano).
@@ -1794,16 +1802,24 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       if (isNfsByFilename) {
         systemPrompt = `Você é um sistema especialista em faturamento hospitalar e notas fiscais de altíssima precisão (nível OCR Humano).
 Você está processando uma Nota Fiscal de Serviço Eletrônica (NFS-e / Prefeitura / Nibo).
-DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
+DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS E REGRAS FINANCEIRAS ADITIVAS PARA NFS-e:
 1. O campo "documentType" deve ser definido obrigatoriamente como "nota_fiscal".
 2. O campo "emitente" deve ser obrigatoriamente preenchido com a razão social ou nome fantasia do TOMADOR DE SERVIÇOS (o hospital/cliente listado como tomador, pagador ou tomador de serviços). NÃO use o prestador de serviços.
 3. O campo "cnpjEmitente" deve ser preenchido com o CNPJ do TOMADOR DE SERVIÇOS.
 4. O campo "numeroNota" deve ser o número identificador da nota fiscal (ex: encontre o número único identificador, como "991" no canto superior direito).
 5. O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão" ou similar (ex: "15/05/2026", preencha no formato DD/MM/AAAA ou AAAA-MM-DD).
-6. O campo "valorTotal" deve ser o valor líquido ou total do documento ("Valor de Serviços", "Valor dos Serviços", "Valor Líquido", etc.).
-7. O campo "valorLiquido" deve ser o valor líquido real após deduções/retenções de tributos (geralmente sob o nome de 'Valor Líquido' da nota). Se não houver retenções (como PIS, COFINS, CSLL, IR, ISS), preencha o mesmo valor presente no campo "valorTotal".
-8. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
-9. Retorne um array de etiquetas vazio [] para o campo "etiquetas", mantendo o tipo do array para compatibilidade.
+
+HIERARQUIA FINANCEIRA PARA NOTAS FISCAIS:
+- valorTotal (valor bruto): valor total dos serviços prestados, geralmente no topo ou meio da nota em destaque (ex: "Valor de Serviços", "Valor dos Serviços", etc.).
+- valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal.
+
+IDENTIFICAÇÃO DE PACIENTES, CONVÊNIOS E DATAS EM NOTAS FISCAIS:
+- Nome do paciente: em notas fiscais, o paciente raramente é o "Tomador do Serviço". Procure o nome do paciente nos campos "Discriminação dos Serviços", "Observações" ou "Informações Complementares" da nota e preencha no campo "nome_paciente" (e também no array "etiquetas" se aplicável).
+- Convênio: procure por logotipos ou menções textuais de operadoras de saúde (ex: Unimed, Bradesco, SulAmérica, Amil, Allianz, etc.) tanto no campo "Tomador do Serviço" quanto na descrição dos serviços, e preencha no campo "convenio".
+- Data de atendimento: procure pela data em que o procedimento foi realizado. Se não houver data de atendimento explícita no documento, use a data de emissão da nota como fallback ("data_atendimento").
+
+6. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
+7. Se um paciente específico for identificado na nota fiscal usando as regras acima, você pode incluir o paciente no array "etiquetas" preenchendo seus dados; caso contrário, retorne o array "etiquetas" vazio [].
 Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
       } else {
         systemPrompt = `Você é um sistema especialista em faturamento hospitalar, etiquetas hospitalares e telas de sistema/agendas.
@@ -1813,10 +1829,18 @@ Se, no entanto, a imagem contiver elements de "NOTA FISCAL", "NFS-e" ou "TOMADOR
 - O campo "cnpjEmitente" deve ser o CNPJ do TOMADOR DE SERVIÇOS.
 - O campo "dataEmissao" deve ser a data de emissão.
 - O campo "numeroNota" deve ser o número identificador (ex: "991" ou similar).
-- O campo "valorTotal" deve ser o valor líquido ou dos serviços.
-- O campo "valorLiquido" deve ser o valor líquido real após deduções de retenções federais (PIS, COFINS, CSLL, IR) e ISS. Se não houver retenções, repita o valor de valorTotal.
+
+HIERARQUIA FINANCEIRA PARA NOTAS FISCAIS:
+  * valorTotal (valor bruto): valor total dos serviços prestados, geralmente no topo ou meio da nota em destaque.
+  * valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal.
+
+IDENTIFICAÇÃO DE PACIENTES, CONVÊNIOS E DATAS EM NOTAS FISCAIS:
+  * Nome do paciente: em notas fiscais, o paciente raramente é o "Tomador do Serviço". Procure o nome do paciente nos campos "Discriminação dos Serviços", "Observações" ou "Informações Complementares" da nota e preencha no campo "nome_paciente" (e também no array "etiquetas" se aplicável).
+  * Convênio: procure por logotipos ou menções textuais de operadoras de saúde (ex: Unimed, Bradesco, SulAmérica, Amil, Allianz, etc.) tanto no campo "Tomador do Serviço" quanto na descrição dos serviços, e preencha no campo "convenio".
+  * Data de atendimento: procure pela data em que o procedimento foi realizado. Se não houver data de atendimento explícita no documento, use a data de emissão da nota como fallback ("data_atendimento").
+
 - O array "itens" deve conter os procedimentos.
-- O array "etiquetas" deve ser retornado vazio [].
+- Se um paciente for identificado na nota fiscal, você pode incluir o paciente no array "etiquetas" preenchendo seus dados; caso contrário, retorne o array "etiquetas" vazio [].
 
 DETECÇÃO DE TIPO DE DOCUMENTO (OBRIGATÓRIO):
 Antes de realizar qualquer extração de campos, você deve analisar visualmente a imagem e identificar o seu tipo de documento exato:
