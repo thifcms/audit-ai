@@ -1396,7 +1396,21 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS PARA NFS-e:
 Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
         } else {
           systemPrompt = `Você é um sistema especialista em auditoria e faturamento hospitalar de altíssima precisão (nível OCR Humano).
-Diretrizes de extração para ETIQUETAS, TELAS DE SISTEMA DIGITAL E AGENDAS EM TABELA:
+
+DETECÇÃO DE TIPO DE DOCUMENTO (OBRIGATÓRIO):
+Antes de realizar qualquer extração de campos, você deve analisar visualmente a imagem e identificar o seu tipo de documento exato:
+- ETIQUETA FÍSICA INDIVIDUAL (etiqueta adesiva impressa colada em prontuário)
+- TELA DE SISTEMA DIGITAL (captura de tela de cadastro ou faturamento hospitalar)
+- TABELA/LISTA DE AGENDA (tabela com vários agendamentos ou atendimentos em formato de linhas)
+- FOLHA CIRÚRGICA / DESCRIÇÃO OPERATÓRIA (documento detalhado do procedimento cirúrgico)
+- GUIA DE FATURAMENTO (guia de consulta, SADT ou internação física/digital)
+Após classificar mentalmente o tipo de documento, aplique estritamente as regras de extração dedicadas abaixo.
+
+REGRA GERAL PARA DADOS ILEGÍVEIS:
+- Se um campo estiver completamente ilegível devido a reflexo de luz, rasura, dobra ou corte severo (sendo impossível qualquer leitura humana confiável), retorne o campo como vazio ("") em vez de adivinhar, inventar ou preencher dados de preenchimento fictício.
+- Para letras e caracteres parcialmente visíveis (baixa resolução ou apagados), continue aplicando o esforço ativo de reconstrução descrita nas seções de etiquetas físicas.
+
+Diretrizes de extração para ETIQUETAS, TELAS DE SISTEMA DIGITAL, AGENDAS EM TABELA E FOLHAS CIRÚRGICAS:
 A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação ou telas de agenda/consultório hospitalar). Use o contexto para decifrar e extrair as informações corretas.
 
 Campos típicos e variações de rótulos esperados:
@@ -1433,6 +1447,11 @@ DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
      * numero_atendimento: O identificador numérico de atendimento (primeiro campo numérico da linha, ex: '5315008')
      * convenio: Nome limpo do convênio/plano de saúde (ex: 'Sul América', sem truncamentos como 'SUL AMÉ...')
      * data_atendimento: A data do atendimento extraída de campos como 'Data/Hora' (ex: '23/06/2026' ou '2026-06-23')
+
+4. PARA FOLHA CIRÚRGICA / DESCRIÇÃO OPERATÓRIA:
+   - Identifique os dados do cabeçalho do documento (geralmente no topo).
+   - Extraia o nome do paciente, a data do procedimento e o convênio a partir do cabeçalho.
+   - ATENÇÃO EXTREMA: Não confunda o nome do cirurgião principal ou equipe médica (frequentemente listado em "Cirurgião", "Médico" ou "Dr(a).") com o nome do paciente. O nome do paciente geralmente está em um campo bem identificado como "Paciente:", "Nome:" ou "Beneficiário:".
 
 Siga estas regras rigorosas:
 1. Identidade de Telas de Sistema e Filtragem de Ruído: Fotos de telas de sistemas de faturamento/cirurgia contêm ruído visual abundante (botões de interface, campos vazios, termos repetidos das abas do sistema ou texto de outras seções). Ignore qualquer ruído ou duplicados parciais e extraia estritamente os campos demográficos solicitados que forem legíveis e inequívocos.
@@ -1799,7 +1818,20 @@ Se, no entanto, a imagem contiver elements de "NOTA FISCAL", "NFS-e" ou "TOMADOR
 - O array "itens" deve conter os procedimentos.
 - O array "etiquetas" deve ser retornado vazio [].
 
-Para ETIQUETAS HOSPITALARES normais, TELAS DE SISTEMA DIGITAL OU AGENDAS EM TABELA:
+DETECÇÃO DE TIPO DE DOCUMENTO (OBRIGATÓRIO):
+Antes de realizar qualquer extração de campos, você deve analisar visualmente a imagem e identificar o seu tipo de documento exato:
+- ETIQUETA FÍSICA INDIVIDUAL (etiqueta adesiva impressa colada em prontuário)
+- TELA DE SISTEMA DIGITAL (captura de tela de cadastro ou faturamento hospitalar)
+- TABELA/LISTA DE AGENDA (tabela com vários agendamentos ou atendimentos em formato de linhas)
+- FOLHA CIRÚRGICA / DESCRIÇÃO OPERATÓRIA (documento detalhado do procedimento cirúrgico)
+- GUIA DE FATURAMENTO (guia de consulta, SADT ou internação física/digital)
+Após classificar mentalmente o tipo de documento, aplique estritamente as regras de extração dedicadas abaixo.
+
+REGRA GERAL PARA DADOS ILEGÍVEIS:
+- Se um campo estiver completamente ilegível devido a reflexo de luz, rasura, dobra ou corte severo (sendo impossível qualquer leitura humana confiável), retorne o campo como vazio ("") em vez de adivinhar, inventar ou preencher dados de preenchimento fictício.
+- Para letras e caracteres parcialmente visíveis (baixa resolução ou apagados), continue aplicando o effort de reconstrução descrita nas seções de etiquetas físicas.
+
+Para ETIQUETAS HOSPITALARES normais, TELAS DE SISTEMA DIGITAL, AGENDAS EM TABELA E FOLHAS CIRÚRGICAS:
 A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação ou telas de agenda/consultório).
 Identifique os dados demográficos (nome_paciente, numero_atendimento, idade, convenio, hospital, data_nascimento) e preencha o array de etiquetas seguindo estas regras aditivas:
 1. Identificação do Paciente: O nome do paciente geralmente está ao lado ou abaixo de rótulos como "Nome:" ou "Paciente:". Diferencie sempre do nome de qualquer médico ou profissional de saúde listado na imagem (frequentemente precedidos por "Dr.", "Dra." ou acompanhados do CRM). Conserve também reconhecimento de formatos como "Leito: X / Nome" para etiquetas físicas.
@@ -1824,6 +1856,11 @@ DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
     * numero_atendimento: O identificador numérico de atendimento (primeiro campo numérico da linha, ex: '5315008')
     * convenio: Nome limpo do convênio/plano de saúde (ex: 'Sul América', sem truncamentos como 'SUL AMÉ...')
     * data_atendimento: A data do atendimento extraída de campos como 'Data/Hora' (ex: '23/06/2026' ou '2026-06-23')
+
+- PARA FOLHA CIRÚRGICA / DESCRIÇÃO OPERATÓRIA:
+  * Identifique os dados do cabeçalho do documento (geralmente no topo).
+  * Extraia o nome do paciente, a data do procedimento e o convênio a partir do cabeçalho.
+  * ATENÇÃO EXTREMA: Não confunda o nome do cirurgião principal ou equipe médica (frequentemente listado em "Cirurgião", "Médico" ou "Dr(a).") com o nome do paciente. O nome do paciente geralmente está em um campo bem identificado como "Paciente:", "Nome:" ou "Beneficiário:".
 
 2. Data do Atendimento/Cirurgia/Internação: Para telas de sistema, inclua a busca pelo termo "Data da Cirurgia:", "Data de Entrada", "Data Agendada", "Data Internação" ou "Dt. Cirurgia:". Conserve termos de etiquetas físicas como "Dt.Entr:", "Atend:", "Dt. Adm:", "Admissão:", "Internação:", etc.
 3. Identificação do Convênio: Para telas de sistema, inclua a busca pelo termo "Classe:" ou "Classe de convênio" como sinônimo completo de convênio. Conserve termos de etiquetas físicas como 'Conv:', 'Convênio:', 'Plano:', 'OPERADORA'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
