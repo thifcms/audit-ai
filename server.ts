@@ -1392,11 +1392,11 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS E REGRAS FINANCEIRAS ADITIVAS PARA NFS-e:
 
 HIERARQUIA FINANCEIRA PARA NOTAS FISCAIS:
 - valorTotal (valor bruto): valor total dos serviços prestados, geralmente no topo ou meio da nota em destaque (ex: "Valor de Serviços", "Valor dos Serviços", etc.).
-- valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal.
+- valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal. Se a nota apresentar qualquer imposto retido, o valorLiquido DEVE ser menor que o valorTotal. Procure especificamente pelo campo "Líquido a Receber". NÃO calcule impostos — leia o valor diretamente do documento.
 
 IDENTIFICAÇÃO DE PACIENTES, CONVÊNIOS E DATAS EM NOTAS FISCAIS:
 - Nome do paciente: em notas fiscais, o paciente raramente é o "Tomador do Serviço". Procure o nome do paciente nos campos "Discriminação dos Serviços", "Observações" ou "Informações Complementares" da nota e preencha no campo "nome_paciente" (e também no array "etiquetas" se aplicável).
-- Convênio: procure por logotipos ou menções textuais de operadoras de saúde (ex: Unimed, Bradesco, SulAmérica, Amil, Allianz, etc.) tanto no campo "Tomador do Serviço" quanto na descrição dos serviços, e preencha no campo "convenio".
+- Convênio: o campo "convenio" deve ser preenchido obrigatoriamente como null para notas fiscais. Convênios nunca devem ser lidos em notas fiscais — isso evita confundir o tomador de serviço com o convênio do paciente.
 - Data de atendimento: procure pela data em que o procedimento foi realizado. Se não houver data de atendimento explícita no documento, use a data de emissão da nota como fallback ("data_atendimento").
 
 6. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
@@ -1433,7 +1433,11 @@ Campos típicos e variações de rótulos esperados:
 - "Convênio", "OPERADORA": Nome do plano de saúde ou operadora. O campo convenio é OBRIGATÓRIO.
   * Para fotos de telas de sistema: Busque por "Classe:" ou "Classe de convênio" como sinônimo para termo de convênio e operadora de saúde.
   * Para etiquetas físicas: Mantenha a busca existente por termos como 'Conv:', 'Convênio:', 'Plano:'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
+  * RECONHECIMENTO DE LOGOTIPO: se na tela ou etiqueta houver apenas um logotipo de operadora sem texto, reconheça a marca visualmente e retorne o nome do convênio (ex: logotipo do Bradesco → "Bradesco Saúde", logotipo da Unimed → "Unimed").
 - "Hospital", "CLÍNICA", "Setor": Nome do hospital, clínica ou setor, geralmente na primeira linha, cabeçalho ou campo dedicado da tela.
+
+CAMPOS FINANCEIROS PARA TELAS DE COMPUTADOR E ETIQUETAS:
+- Os campos financeiros (valorTotal, valorLiquido) devem vir obrigatoriamente como null ou zero (0). O foco destes documentos é exclusivamente convenio, nome_paciente e data_atendimento.
 
 DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
 1. PARA ETIQUETAS FÍSICAS INDIVIDUAIS:
@@ -1811,11 +1815,11 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS E REGRAS FINANCEIRAS ADITIVAS PARA NFS-e:
 
 HIERARQUIA FINANCEIRA PARA NOTAS FISCAIS:
 - valorTotal (valor bruto): valor total dos serviços prestados, geralmente no topo ou meio da nota em destaque (ex: "Valor de Serviços", "Valor dos Serviços", etc.).
-- valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal.
+- valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal. Se a nota apresentar qualquer imposto retido, o valorLiquido DEVE ser menor que o valorTotal. Procure especificamente pelo campo "Líquido a Receber". NÃO calcule impostos — leia o valor diretamente do documento.
 
 IDENTIFICAÇÃO DE PACIENTES, CONVÊNIOS E DATAS EM NOTAS FISCAIS:
 - Nome do paciente: em notas fiscais, o paciente raramente é o "Tomador do Serviço". Procure o nome do paciente nos campos "Discriminação dos Serviços", "Observações" ou "Informações Complementares" da nota e preencha no campo "nome_paciente" (e também no array "etiquetas" se aplicável).
-- Convênio: procure por logotipos ou menções textuais de operadoras de saúde (ex: Unimed, Bradesco, SulAmérica, Amil, Allianz, etc.) tanto no campo "Tomador do Serviço" quanto na descrição dos serviços, e preencha no campo "convenio".
+- Convênio: o campo "convenio" deve ser preenchido obrigatoriamente como null para notas fiscais. Convênios nunca devem ser lidos em notas fiscais — isso evita confundir o tomador de serviço com o convênio do paciente.
 - Data de atendimento: procure pela data em que o procedimento foi realizado. Se não houver data de atendimento explícita no documento, use a data de emissão da nota como fallback ("data_atendimento").
 
 6. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
@@ -1827,16 +1831,16 @@ Se a imagem for identificada como uma etiqueta hospitalar ou foto de tela de sis
 Se, no entanto, a imagem contiver elements de "NOTA FISCAL", "NFS-e" ou "TOMADOR DE SERVIÇOS" (seja de prefeitura, Nibo ou etc.), extraia como uma NOTA FISCAL (documentType: "nota_fiscal") e siga estritamente estas regras:
 - O campo "emitente" deve ser obrigatoriamente preenchido com os dados do TOMADOR DE SERVIÇOS (o hospital/empresa contratante), NUNCA os dados do emitente/prestador original de serviços.
 - O campo "cnpjEmitente" deve ser o CNPJ do TOMADOR DE SERVIÇOS.
-- O campo "dataEmissao" deve ser a data de emissão.
+- O campo "dataEmissao" deve ser la data de emissão.
 - O campo "numeroNota" deve ser o número identificador (ex: "991" ou similar).
 
 HIERARQUIA FINANCEIRA PARA NOTAS FISCAIS:
   * valorTotal (valor bruto): valor total dos serviços prestados, geralmente no topo ou meio da nota em destaque.
-  * valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal.
+  * valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal. Se a nota apresentar qualquer imposto retido, o valorLiquido DEVE ser menor que o valorTotal. Procure especificamente pelo campo "Líquido a Receber". NÃO calcule impostos — leia o valor diretamente do documento.
 
 IDENTIFICAÇÃO DE PACIENTES, CONVÊNIOS E DATAS EM NOTAS FISCAIS:
   * Nome do paciente: em notas fiscais, o paciente raramente é o "Tomador do Serviço". Procure o nome do paciente nos campos "Discriminação dos Serviços", "Observações" ou "Informações Complementares" da nota e preencha no campo "nome_paciente" (e também no array "etiquetas" se aplicável).
-  * Convênio: procure por logotipos ou menções textuais de operadoras de saúde (ex: Unimed, Bradesco, SulAmérica, Amil, Allianz, etc.) tanto no campo "Tomador do Serviço" quanto na descrição dos serviços, e preencha no campo "convenio".
+  * Convênio: o campo "convenio" deve ser preenchido obrigatoriamente como null para notas fiscais. Convênios nunca devem ser lidos em notas fiscais — isso evita confundir o tomador de serviço com o convênio do paciente.
   * Data de atendimento: procure pela data em que o procedimento foi realizado. Se não houver data de atendimento explícita no documento, use a data de emissão da nota como fallback ("data_atendimento").
 
 - O array "itens" deve conter os procedimentos.
@@ -1859,6 +1863,9 @@ Para ETIQUETAS HOSPITALARES normais, TELAS DE SISTEMA DIGITAL, AGENDAS EM TABELA
 A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação ou telas de agenda/consultório).
 Identifique os dados demográficos (nome_paciente, numero_atendimento, idade, convenio, hospital, data_nascimento) e preencha o array de etiquetas seguindo estas regras aditivas:
 1. Identificação do Paciente: O nome do paciente geralmente está ao lado ou abaixo de rótulos como "Nome:" ou "Paciente:". Diferencie sempre do nome de qualquer médico ou profissional de saúde listado na imagem (frequentemente precedidos por "Dr.", "Dra." ou acompanhados do CRM). Conserve também reconhecimento de formatos como "Leito: X / Nome" para etiquetas físicas.
+
+CAMPOS FINANCEIROS PARA TELAS DE COMPUTADOR E ETIQUETAS:
+- Os campos financeiros (valorTotal, valorLiquido) devem vir obrigatoriamente como null ou zero (0). O foco destes documentos é exclusivamente convenio, nome_paciente e data_atendimento.
 
 DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
 - PARA ETIQUETAS FÍSICAS INDIVIDUAIS:
@@ -1888,6 +1895,7 @@ DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
 
 2. Data do Atendimento/Cirurgia/Internação: Para telas de sistema, inclua a busca pelo termo "Data da Cirurgia:", "Data de Entrada", "Data Agendada", "Data Internação" ou "Dt. Cirurgia:". Conserve termos de etiquetas físicas como "Dt.Entr:", "Atend:", "Dt. Adm:", "Admissão:", "Internação:", etc.
 3. Identificação do Convênio: Para telas de sistema, inclua a busca pelo termo "Classe:" ou "Classe de convênio" como sinônimo completo de convênio. Conserve termos de etiquetas físicas como 'Conv:', 'Convênio:', 'Plano:', 'OPERADORA'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
+   * RECONHECIMENTO DE LOGOTIPO: se na tela ou etiqueta houver apenas um logotipo de operadora sem texto, reconheça a marca visualmente e retorne o nome do convênio (ex: logotipo do Bradesco → "Bradesco Saúde", logotipo da Unimed → "Unimed").
 4. Ignorar Ruídos Visuais: Ignore botões, caixas de interface vazias, termos duplicados do layout de abas e textos secundários irrelevantes.
 5. O campo "hospital" deve conter o nome do hospital, clínica ou setor, geralmente no topo, cabeçalho ou campo dedicado da tela.
 
