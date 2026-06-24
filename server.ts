@@ -1413,15 +1413,26 @@ Campos típicos e variações de rótulos esperados:
   * Para etiquetas físicas: Mantenha a busca existente por termos como 'Conv:', 'Convênio:', 'Plano:'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
 - "Hospital", "CLÍNICA", "Setor": Nome do hospital, clínica ou setor, geralmente na primeira linha, cabeçalho ou campo dedicado da tela.
 
-DIRETRIZES ESPECÍFICAS PARA TABELAS DE AGENDA/CONSULTÓRIO (MÚLTIPLOS PACIENTES POR FOTO):
-Caso a imagem seja uma foto de tela de agenda ou lista de consultório hospitalar em formato de tabela:
-- Identifique a estrutura de tabela onde cada linha ou registro possui informações dispostas na seguinte ordem ou formato semelhante: Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade | Status2
-- Exemplo real de linha: '5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026 13:27:40 42a'
-- Para cada uma das linhas detectadas na tabela, extraia um item correspondente no array 'etiquetas' preenchendo:
-  * nome_paciente: Nome completo do paciente (ex: 'Rafael de Oliveira Barbosa')
-  * numero_atendimento: O identificador numérico de atendimento (primeiro campo numérico da linha, ex: '5315008')
-  * convenio: Nome limpo do convênio/plano de saúde (ex: 'Sul América', sem truncamentos como 'SUL AMÉ...')
-  * data_atendimento: A data do atendimento extraída de campos como 'Data/Hora' (ex: '23/06/2026' ou '2026-06-23')
+DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
+1. PARA ETIQUETAS FÍSICAS INDIVIDUAIS:
+   - O modelo deve focar estritamente na leitura do único paciente presente na etiqueta.
+   - Use comportamento de OCR clássico de altíssima fidelidade letra por letra. Para etiquetas físicas apagadas ou de baixa resolução, reconstrua os nomes e números a partir das letras visíveis, completando letra por letra.
+   - NUNCA tente aplicar lógica de colunas ou encaixar os dados em uma estrutura de tabela. Isso corrompe os nomes de pacientes gerando textos embaralhados.
+   - Extraia o nome do paciente com fidelidade absoluta de caracteres.
+
+2. PARA FOTOS DE TELAS DE SISTEMAS DIGITAIS INDIVIDUAIS:
+   - Filtre ruídos de botões de interface, abas secundárias e termos repetitivos.
+   - Localize as seções demográficas "DADOS DO PACIENTE" ou similar para capturar o nome do paciente correto, diferenciando de nomes de médicos.
+
+3. PARA TABELAS DE AGENDA/CONSULTÓRIO (MÚLTIPLOS PACIENTES EM FORMATO DE TABELA/LISTA):
+   - USE ESTA REGRA APENAS SE IDENTIFICAR EXPLICITAMENTE UMA ESTRUTURA DE TABELA/LISTA COM MÚLTIPLOS PACIENTES NA IMAGEM.
+   - Identifique a estrutura de tabela onde cada linha ou registro possui informações dispostas na seguinte ordem ou formato semelhante: Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade | Status2
+   - Exemplo real de linha: '5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026 13:27:40 42a'
+   - Para cada uma das linhas detectadas na tabela, extraia um item correspondente no array 'etiquetas' preenchendo:
+     * nome_paciente: Nome completo do paciente (ex: 'Rafael de Oliveira Barbosa')
+     * numero_atendimento: O identificador numérico de atendimento (primeiro campo numérico da linha, ex: '5315008')
+     * convenio: Nome limpo do convênio/plano de saúde (ex: 'Sul América', sem truncamentos como 'SUL AMÉ...')
+     * data_atendimento: A data do atendimento extraída de campos como 'Data/Hora' (ex: '23/06/2026' ou '2026-06-23')
 
 Siga estas regras rigorosas:
 1. Identidade de Telas de Sistema e Filtragem de Ruído: Fotos de telas de sistemas de faturamento/cirurgia contêm ruído visual abundante (botões de interface, campos vazios, termos repetidos das abas do sistema ou texto de outras seções). Ignore qualquer ruído ou duplicados parciais e extraia estritamente os campos demográficos solicitados que forem legíveis e inequívocos.
@@ -1441,10 +1452,10 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
   "idade_confidence": NUMBER,
   "convenio": "STRING (Nome do convênio do primeiro paciente ou principal)",
   "convenio_confidence": NUMBER,
-  "data_nascimento": "STRING (Formato AAAA-MM-DD)",
-  "data_nascimento_confidence": NUMBER,
   "hospital": "STRING (Nome do hospital ou clínica)",
   "hospital_confidence": NUMBER,
+  "data_nascimento": "STRING (Formato AAAA-MM-DD)",
+  "data_nascimento_confidence": NUMBER,
   "documentType": "etiqueta_hospitalar" | "nota_fiscal" | "outro",
   "summary": "STRING (Resumo técnico em português descrevendo a qualidade da leitura)",
   "etiquetas": [] (Array OBRIGATÓRIO contendo TODOS OS PACIENTES detectados na imagem, e não apenas um objeto único)
@@ -1792,15 +1803,32 @@ Para ETIQUETAS HOSPITALARES normais, TELAS DE SISTEMA DIGITAL OU AGENDAS EM TABE
 A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação ou telas de agenda/consultório).
 Identifique os dados demográficos (nome_paciente, numero_atendimento, idade, convenio, hospital, data_nascimento) e preencha o array de etiquetas seguindo estas regras aditivas:
 1. Identificação do Paciente: O nome do paciente geralmente está ao lado ou abaixo de rótulos como "Nome:" ou "Paciente:". Diferencie sempre do nome de qualquer médico ou profissional de saúde listado na imagem (frequentemente precedidos por "Dr.", "Dra." ou acompanhados do CRM). Conserve também reconhecimento de formatos como "Leito: X / Nome" para etiquetas físicas.
+
+DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
+- PARA ETIQUETAS FÍSICAS INDIVIDUAIS:
+  * O modelo deve focar estritamente na leitura do único paciente presente na etiqueta.
+  * Use comportamento de OCR clássico de altíssima fidelidade letra por letra. Para etiquetas físicas apagadas ou de baixa resolução, reconstrua os nomes e números a partir das letras visíveis, completando letra por letra.
+  * NUNCA tente aplicar lógica de colunas ou encaixar os dados em uma estrutura de tabela. Isso corrompe os nomes de pacientes gerando textos embaralhados.
+  * Extraia o nome do paciente com fidelidade absoluta de caracteres.
+
+- PARA FOTOS DE TELAS DE SISTEMAS DIGITAIS INDIVIDUAIS:
+  * Filtre ruídos de botões de interface, abas secundárias e termos repetitivos.
+  * Localize as seções demográficas "DADOS DO PACIENTE" ou similar para capturar o nome do paciente correto, diferenciando de nomes de médicos.
+
+- PARA TABELAS DE AGENDA/CONSULTÓRIO (MÚLTIPLOS PACIENTES EM FORMATO DE TABELA/LISTA):
+  * USE ESTA REGRA APENAS SE IDENTIFICAR EXPLICITAMENTE UMA ESTRUTURA DE TABELA/LISTA COM MÚLTIPLOS PACIENTES NA IMAGEM.
+  * Identifique a estrutura de tabela onde cada linha ou registro possui informações dispostas na seguinte ordem ou formato semelhante: Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade | Status2
+  * Exemplo real de linha: '5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026 13:27:40 42a'
+  * Para cada uma das linhas detectadas na tabela, extraia um item correspondente no array 'etiquetas' preenchendo:
+    * nome_paciente: Nome completo do paciente (ex: 'Rafael de Oliveira Barbosa')
+    * numero_atendimento: O identificador numérico de atendimento (primeiro campo numérico da linha, ex: '5315008')
+    * convenio: Nome limpo do convênio/plano de saúde (ex: 'Sul América', sem truncamentos como 'SUL AMÉ...')
+    * data_atendimento: A data do atendimento extraída de campos como 'Data/Hora' (ex: '23/06/2026' ou '2026-06-23')
+
 2. Data do Atendimento/Cirurgia/Internação: Para telas de sistema, inclua a busca pelo termo "Data da Cirurgia:", "Data de Entrada", "Data Agendada", "Data Internação" ou "Dt. Cirurgia:". Conserve termos de etiquetas físicas como "Dt.Entr:", "Atend:", "Dt. Adm:", "Admissão:", "Internação:", etc.
 3. Identificação do Convênio: Para telas de sistema, inclua a busca pelo termo "Classe:" ou "Classe de convênio" como sinônimo completo de convênio. Conserve termos de etiquetas físicas como 'Conv:', 'Convênio:', 'Plano:', 'OPERADORA'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
-4. Tabelas de Agenda/Consultório: Se a imagem contiver uma estrutura de tabela com múltiplos pacientes, cada linha correspondendo a um atendimento na seguinte ordem ou formato semelhante: Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade | Status2 (Ex: '5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026 13:27:40 42a'), extraia para cada uma das linhas detectadas na tabela um item no array 'etiquetas' com:
-   * nome_paciente: Nome completo do paciente (ex: 'Rafael de Oliveira Barbosa')
-   * numero_atendimento: O identificador numérico do atendimento (primeiro campo numérico da linha, ex: '5315008')
-   * convenio: Nome limpo do convênio/plano de saúde (ex: 'Sul América', sem truncamentos como 'SUL AMÉ...')
-   * data_atendimento: A data do atendimento extraída de campos como 'Data/Hora' (ex: '23/06/2026' ou '2026-06-23')
-5. Ignorar Ruídos Visuais: Ignore botões, caixas de interface vazias, termos duplicados do layout de abas e textos secundários irrelevantes.
-6. O campo "hospital" deve conter o nome do hospital, clínica ou setor, geralmente no topo, cabeçalho ou campo dedicado da tela.
+4. Ignorar Ruídos Visuais: Ignore botões, caixas de interface vazias, termos duplicados do layout de abas e textos secundários irrelevantes.
+5. O campo "hospital" deve conter o nome do hospital, clínica ou setor, geralmente no topo, cabeçalho ou campo dedicado da tela.
 
 Schema estruturado obrigatório (inclua *_confidence de 0-100):
 {
