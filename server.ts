@@ -2346,6 +2346,14 @@ Diretrizes:
     }
   });
 
+  // --- Health Check Route ---
+  app.get("/health", (req, res) => {
+    res.status(200).json({
+      status: "ok",
+      timestamp: new Date().toISOString()
+    });
+  });
+
   app.use("/api", apiRouter);
 
   // Error handling for /api routes
@@ -2402,6 +2410,19 @@ Diretrizes:
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
+
+  // Self-ping to prevent sleep on Render (every 10 minutes)
+  setInterval(() => {
+    const url = "https://audit-ai-6wed.onrender.com/health";
+    console.log(`[Self-Ping] Fazendo ping para manter o servidor ativo: ${url}`);
+    fetch(url)
+      .then(res => {
+        console.log(`[Self-Ping] Resposta recebida. Status: ${res.status}`);
+      })
+      .catch(err => {
+        console.error(`[Self-Ping] Erro ao fazer ping:`, err.message || err);
+      });
+  }, 10 * 60 * 1000); // 10 minutes
 }
 
 startServer();
