@@ -64,6 +64,34 @@ function getImageHash(base64Data: string): string {
   return crypto.createHash("md5").update(base64Clean).digest("hex");
 }
 
+async function parsePdfText(fileBuffer: Buffer): Promise<string> {
+  try {
+    const pdfParseModule = await import("pdf-parse") as any;
+    if (pdfParseModule.PDFParse) {
+      const uint8 = new Uint8Array(fileBuffer);
+      const p = new pdfParseModule.PDFParse(uint8);
+      const res = await p.getText();
+      return res.text || "";
+    }
+    const pdfParse = pdfParseModule.default || pdfParseModule;
+    if (typeof pdfParse === "function") {
+      const res = await pdfParse(fileBuffer);
+      return res.text || "";
+    }
+    if (pdfParse && typeof pdfParse.PDFParse === "function") {
+      const uint8 = new Uint8Array(fileBuffer);
+      const p = new pdfParse.PDFParse(uint8);
+      const res = await p.getText();
+      return res.text || "";
+    }
+    console.warn("[parsePdfText] Nenhum método de parse de PDF válido encontrado.");
+    return "";
+  } catch (err: any) {
+    console.error("[parsePdfText] Erro ao extrair texto do PDF:", err.message);
+    return "";
+  }
+}
+
 function detectHospitalName(text: string): string {
   if (!text) return "Outro";
   const uppercased = text.toUpperCase();
@@ -1312,10 +1340,7 @@ async function startServer() {
       try {
         if (mimeType === "application/pdf" || filename?.toLowerCase().endsWith(".pdf")) {
           console.log("[Direct Extraction Back] Extraindo texto do PDF preliminar...");
-          const pdfParseModule = await import("pdf-parse") as any;
-          const pdfParse = pdfParseModule.default || pdfParseModule;
-          const pdfData = await pdfParse(fileBuffer);
-          extractedText = pdfData.text || "";
+          extractedText = await parsePdfText(fileBuffer);
         } else {
           console.log("[Direct Extraction Back] Convertendo imagem e extraindo texto com Tesseract OCR preliminar...");
           const TesseractModule = await import("tesseract.js") as any;
@@ -1699,7 +1724,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       // Register Learning Log for Stats Panel (Background operation - no await for rapid response)
       try {
         db.collection("learning_logs").add({
-          timestamp: serverTimestamp(),
+          timestamp: new Date(),
           hospital: hospitalName,
           provider: usedProvider,
           model: usedModel
@@ -1795,16 +1820,82 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       let success = false;
       let resultData: any = null;
       let usedModel = "";
-      let usedProvider: "gemini" | "groq" | "heuristica" = "gemini";
+      let usedProvider: "gemini" | "groq" | "heuristica" | "local_cache" = "gemini";
       let errorMsg = "";
       let quotaExhausted = false;
 
-      const filenameUpper = (filename || "").toUpperCase();
-      const isNfsByFilename = filenameUpper.includes("NOTA") || filenameUpper.includes("NF") || filenameUpper.includes("FATURA") || filenameUpper.includes("RECIBO") || (expectedType && expectedType.toUpperCase() === "NOTA_FISCAL");
+      // 0. Preliminary Tesseract OCR/Text extraction so we can identify hospital & template cache
+      let extractedText = "";
+      try {
+        if (mimeType === "application/pdf" || filename?.toLowerCase().endsWith(".pdf")) {
+          console.log("[Direct Extraction Back] Extraindo texto do PDF preliminar...");
+          extractedText = await parsePdfText(fileBuffer);
+        } else {
+          console.log("[Direct Extraction Back] Convertendo imagem e extraindo texto com Tesseract OCR preliminar...");
+          const TesseractModule = await import("tesseract.js") as any;
+          const Tesseract = TesseractModule.default || TesseractModule;
+          const ocrPromise = Tesseract.recognize(fileBuffer, "por+eng").then((r: any) => r.data.text || "");
+          // Strict timeout of 2.5s for Tesseract image OCR to avoid any hanging from dynamic CDN bundles
+          extractedText = await withTimeout(ocrPromise, 2500, "");
+        }
+      } catch (ocrErr: any) {
+        console.error("[OCR Preliminar] Falha ao processar OCR:", ocrErr.message);
+      }
 
-      let systemPrompt = "";
-      if (isNfsByFilename) {
-        systemPrompt = `Você é um sistema especialista em faturamento hospitalar e notas fiscais de altíssima precisão (nível OCR Humano).
+      const hospitalName = detectHospitalName(extractedText || filename);
+      const db = getDB();
+
+      // Check Template Cache eligibility (10+ verified examples in learned_examples)
+      let verifiedCount = 0;
+      try {
+        const verifiedSnap = await withTimeout(
+          db.collection("learned_examples")
+            .where("hospital", "==", hospitalName)
+            .where("verified_by_user", "==", true)
+            .get(),
+          1500, // 1.5 seconds budget
+          { size: 0 } as any
+        );
+        verifiedCount = verifiedSnap.size || 0;
+      } catch (snapErr) {
+        console.warn("[Template Cache Query] Falha ao buscar contagem de verificados:", snapErr);
+      }
+
+      if (verifiedCount >= 10) {
+        console.log(`[Template Cache] Hospital ${hospitalName} possui ${verifiedCount} exemplos verificados! Tentando extração via OCR local...`);
+        const localParsed = extractWithLocalRegex(extractedText, hospitalName);
+        if (localParsed) {
+          resultData = {
+            documentType: "etiqueta_hospitalar",
+            summary: `[Cache Local Hit] Extração local efetuada com sucesso para o hospital ${hospitalName} (economia Gemini).`,
+            nome_paciente: localParsed.nome_paciente,
+            nome_paciente_confidence: 100,
+            numero_atendimento: localParsed.numero_atendimento,
+            numero_atendimento_confidence: 100,
+            convenio: localParsed.convenio,
+            convenio_confidence: 100,
+            hospital: localParsed.hospital,
+            hospital_confidence: 100,
+            data_nascimento: localParsed.data_nascimento,
+            data_nascimento_confidence: 100,
+            etiquetas: [localParsed]
+          };
+          success = true;
+          usedModel = "OCR Local (Template Cache)";
+          usedProvider = "local_cache";
+          console.log(`[Template Cache Hit] Extração local bem-sucedida para o hospital ${hospitalName}!`);
+        } else {
+          console.log(`[Template Cache Miss] Campos ausentes no OCR local de ${hospitalName}, caindo para Gemini.`);
+        }
+      }
+
+      if (!success) {
+        const filenameUpper = (filename || "").toUpperCase();
+        const isNfsByFilename = filenameUpper.includes("NOTA") || filenameUpper.includes("NF") || filenameUpper.includes("FATURA") || filenameUpper.includes("RECIBO") || (expectedType && expectedType.toUpperCase() === "NOTA_FISCAL");
+
+        let systemPrompt = "";
+        if (isNfsByFilename) {
+          systemPrompt = `Você é um sistema especialista em faturamento hospitalar e notas fiscais de altíssima precisão (nível OCR Humano).
 Você está processando uma Nota Fiscal de Serviço Eletrônica (NFS-e / Prefeitura / Nibo).
 DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS E REGRAS FINANCEIRAS ADITIVAS PARA NFS-e:
 1. O campo "documentType" deve ser definido obrigatoriamente como "nota_fiscal".
@@ -1825,11 +1916,11 @@ IDENTIFICAÇÃO DE PACIENTES, CONVÊNIOS E DATAS EM NOTAS FISCAIS:
 6. O array "itens" deve conter a descrição de cada procedimento ou serviço de auditoria/consultoria médica faturado.
 7. Se um paciente específico for identificado na nota fiscal usando as regras acima, você pode incluir o paciente no array "etiquetas" preenchendo seus dados; caso contrário, retorne o array "etiquetas" vazio [].
 Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de faturamento.`;
-      } else {
-        systemPrompt = `Você é um sistema especialista em faturamento hospitalar, etiquetas hospitalares e telas de sistema/agendas.
+        } else {
+          systemPrompt = `Você é um sistema especialista em faturamento hospitalar, etiquetas hospitalares e telas de sistema/agendas.
 Se a imagem for identificada como uma etiqueta hospitalar ou foto de tela de sistema/agenda, use o schema de etiqueta usual.
 Se, no entanto, a imagem contiver elements de "NOTA FISCAL", "NFS-e" ou "TOMADOR DE SERVIÇOS" (seja de prefeitura, Nibo ou etc.), extraia como uma NOTA FISCAL (documentType: "nota_fiscal") e siga estritamente estas regras:
-- O campo "emitente" deve ser obrigatoriamente preenchido com os dados do TOMADOR DE SERVIÇOS (o hospital/empresa contratante), NUNCA os dados do emitente/prestador original de serviços.
+- O campo "emitente" deve ser obrigatoriamente preenchido com os dados do TOMADOR DE SERVIÇOS (o hospital/empresa contratante), NUNCA os dados do emitente/prestador original de serviços médicos.
 - O campo "cnpjEmitente" deve ser o CNPJ do TOMADOR DE SERVIÇOS.
 - O campo "dataEmissao" deve ser la data de emissão.
 - O campo "numeroNota" deve ser o número identificador (ex: "991" ou similar).
@@ -1894,10 +1985,10 @@ DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
   * ATENÇÃO EXTREMA: Não confunda o nome do cirurgião principal ou equipe médica (frequentemente listado em "Cirurgião", "Médico" ou "Dr(a).") com o nome do paciente. O nome do paciente geralmente está em um campo bem identificado como "Paciente:", "Nome:" ou "Beneficiário:".
 
 2. Data do Atendimento/Cirurgia/Internação: Para telas de sistema, inclua a busca pelo termo "Data da Cirurgia:", "Data de Entrada", "Data Agendada", "Data Internação" ou "Dt. Cirurgia:". Conserve termos de etiquetas físicas como "Dt.Entr:", "Atend:", "Dt. Adm:", "Admissão:", "Internação:", etc.
-3. Identificação do Convênio: Para telas de sistema, inclua a busca pelo termo "Classe:" ou "Classe de convênio" como sinônimo completo de convênio. Conserve termos de etiquetas físicas como 'Conv:', 'Convênio:', 'Plano:', 'OPERADORA'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
+3. Identificação do Convênio: Para telas de sistema, inclua a busca pelo termo "Classe:" ou "Classe de convênio" como sinônimo de convênio. Conserve termos de etiquetas físicas como 'Conv:', 'Convênio:', 'Plano:', 'OPERADORA'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
    * RECONHECIMENTO DE LOGOTIPO: se na tela ou etiqueta houver apenas um logotipo de operadora sem texto, reconheça a marca visualmente e retorne o nome do convênio (ex: logotipo do Bradesco → "Bradesco Saúde", logotipo da Unimed → "Unimed").
 4. Ignorar Ruídos Visuais: Ignore botões, caixas de interface vazias, termos duplicados do layout de abas e textos secundários irrelevantes.
-5. O campo "hospital" deve conter o nome do hospital, clínica ou setor, geralmente no topo, cabeçalho ou campo dedicado da tela.
+5. O campo "hospital" deve conter o nome do hospital, clínica ou sector, geralmente no topo, cabeçalho ou campo dedicado da tela.
 
 Schema estruturado obrigatório (inclua *_confidence de 0-100):
 {
@@ -1917,215 +2008,196 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
   "summary": "STRING",
   "etiquetas": []
 }`;
-      }
+        }
 
-      // 1. Try Gemini models sequentially
-      for (const modelName of models) {
-        try {
-          console.log(`[Direct Extraction] Tentando modelo Gemini: ${modelName}...`);
-          
-          const filePart = {
-            inlineData: {
-              mimeType: mimeType || "image/jpeg",
-              data: fileBase64
+        // Get few-shot dynamic reference examples
+        const fewShotPrompt = await getFewShotPrompt(hospitalName);
+        let activePromptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).${fewShotPrompt}`;
+        if (isNfsByFilename) {
+          activePromptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal, valorLiquido e itens.`;
+        }
+
+        // 1. Try Gemini models sequentially
+        for (const modelName of models) {
+          try {
+            console.log(`[Direct Extraction] Tentando modelo Gemini: ${modelName}...`);
+            
+            const filePart = {
+              inlineData: {
+                mimeType: mimeType || "image/jpeg",
+                data: fileBase64
+              }
+            };
+
+            const responseSchema = {
+              type: Type.OBJECT,
+              properties: {
+                documentType: { type: Type.STRING },
+                summary: { type: Type.STRING },
+                nome_paciente: { type: Type.STRING },
+                nome_paciente_confidence: { type: Type.NUMBER },
+                numero_atendimento: { type: Type.STRING },
+                numero_atendimento_confidence: { type: Type.NUMBER },
+                idade: { type: Type.NUMBER },
+                idade_confidence: { type: Type.NUMBER },
+                convenio: { type: Type.STRING },
+                convenio_confidence: { type: Type.NUMBER },
+                hospital: { 
+                  type: Type.STRING,
+                  description: "Nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar."
+                },
+                hospital_confidence: { type: Type.NUMBER },
+                data_nascimento: { type: Type.STRING },
+                data_nascimento_confidence: { type: Type.NUMBER },
+                data_atendimento: {
+                  type: Type.STRING,
+                  description: "Data de entrada/atendimento/internação/cirurgia do paciente, geralmente identificada na etiqueta por rótulos como 'Dt.Entr:', 'Dt. Entr:', 'Data Entrada:', 'Atend:', 'Dt. Adm:', 'Admissão:' ou 'Internação:'. Formato esperado: string como aparece na etiqueta (ex: '05/06/2026'). NUNCA confunda com a data de nascimento (geralmente rotulada como 'Dt.Nasc:' ou 'Nasc:')."
+                },
+                data_atendimento_confidence: { type: Type.NUMBER },
+                etiquetas: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      nome_paciente: { type: Type.STRING },
+                      nome_paciente_confidence: { type: Type.NUMBER },
+                      numero_atendimento: { type: Type.STRING },
+                      numero_atendimento_confidence: { type: Type.NUMBER },
+                      idade: { type: Type.NUMBER },
+                      idade_confidence: { type: Type.NUMBER },
+                      convenio: { type: Type.STRING },
+                      convenio_confidence: { type: Type.NUMBER },
+                      hospital: { 
+                        type: Type.STRING,
+                        description: "Nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar."
+                      },
+                      hospital_confidence: { type: Type.NUMBER },
+                      data_nascimento: { type: Type.STRING },
+                      data_nascimento_confidence: { type: Type.NUMBER },
+                      data_atendimento: {
+                        type: Type.STRING,
+                        description: "Data de entrada/atendimento/internação/cirurgia do paciente, geralmente identificada na etiqueta por rótulos como 'Dt.Entr:', 'Dt. Entr:', 'Data Entrada:', 'Atend:', 'Dt. Adm:', 'Admissão:' ou 'Internação:'. Formato esperado: string como aparece na etiqueta (ex: '05/06/2026'). NUNCA confunda com a data de nascimento (geralmente rotulada como 'Dt.Nasc:' ou 'Nasc:')."
+                      },
+                      data_atendimento_confidence: { type: Type.NUMBER }
+                    }
+                  }
+                },
+                numeroNota: { 
+                  type: Type.STRING, 
+                  description: "O número identificador único da Nota Fiscal (ex: encontre o número destacado como '991', 'Número da Nota', 'Nota n°'). Deixe em branco se for etiqueta." 
+                },
+                dataEmissao: { 
+                  type: Type.STRING, 
+                  description: "A data de emissão exata da Nota Fiscal no formato DD/MM/AAAA ou AAAA-MM-DD. Deve ser extraída de campos como 'Data e Hora da emissão' ou similar (ex: se no texto diz 'Data e Hora da emissão: 15/05/2026 12:24:08', extraia exatamente '15/05/2026'). Deixe em branco se for etiqueta." 
+                },
+                emitente: { 
+                  type: Type.STRING, 
+                  description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais (NFS-e/Prefeitura/Nibo), preencha este campo OBRIGATORIAMENTE com a razão social ou nome do TOMADOR DE SERVIÇOS (o hospital ou contratante listado na nota como tomador/cliente, ex: 'ASSOCIACAO HOSPITALAR FILHAS DE NOSSA SENHORA DO MONTE CALVARIO'). NUNCA preencha com o emitente/prestador original de serviços médicos. Deixe em branco se for etiqueta." 
+                },
+                cnpjEmitente: { 
+                  type: Type.STRING, 
+                  description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais, preencha este campo OBRIGATORIAMENTE com o CNPJ do TOMADOR DE SERVIÇOS (o hospital ou contratante listado como tomador/cliente). NUNCA preencha com o CNPJ do prestador. Deixe em branco se for etiqueta." 
+                },
+                valorTotal: { 
+                  type: Type.STRING, 
+                  description: "O valor total bruto ou dos serviços faturados na Nota Fiscal (ex: 'R$ 1.500,00' ou '1500,00'). Deixe em branco ou zerado se for etiqueta." 
+                },
+                valorLiquido: {
+                  type: Type.NUMBER,
+                  description: "Valor líquido EXPLICITAMENTE escrito no documento na linha 'Valor Líquido: R$ X' (geralmente dentro da seção 'Discriminação do Serviço', não na tabela de cálculo de impostos no rodapé). Copie esse número exatamente como está escrito. NÃO calcule ou deduza este valor — apenas leia o que está escrito após 'Valor Líquido:'."
+                },
+                itens: {
+                  type: Type.ARRAY,
+                  description: "Array dos itens ou serviços de auditoria/consultoria médica faturados na nota.",
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      descricao: { type: Type.STRING },
+                      quantidade: { type: Type.NUMBER },
+                      valorUnitario: { type: Type.NUMBER },
+                      valorTotal: { type: Type.NUMBER }
+                    }
+                  }
+                }
+              },
+              required: ["documentType", "summary", "etiquetas"]
+            };
+
+            const result = await generateGeminiContentWithRetry(
+              modelName,
+              [filePart, activePromptPart],
+              systemPrompt,
+              "application/json",
+              responseSchema
+            );
+
+            if (result.text) {
+              resultData = JSON.parse(result.text.trim());
+              success = true;
+              usedModel = `${modelName} (${result.usedKey})`;
+              usedProvider = "gemini";
+              quotaExhausted = !!result.quotaExhausted;
+              console.log(`[Direct Extraction] Sucesso com o modelo Gemini: ${modelName} usando a chave ${result.usedKey}`);
+              break;
             }
-          };
+          } catch (err: any) {
+            console.warn(`[Direct Extraction] Falha com o modelo Gemini ${modelName}:`, err.message);
+            errorMsg = err.message || "Erro desconhecido no Gemini";
+          }
+        }
 
-          let promptPart = `Por favor, analise e extraia os dados estruturados do arquivo "${filename || 'documento'}" (${expectedType || 'autodetectar'}).`;
-          if (isNfsByFilename) {
-            promptPart += `\nAVISO IMPORTANTE: Este documento é uma Nota Fiscal de Serviço Eletrônica (NFS-e). Identifique a seção "TOMADOR DE SERVIÇOS" e preencha "emitente" e "cnpjEmitente" com os dados do TOMADOR (o hospital/cliente pagador). Extraia também a dataEmissao, numeroNota (ex: "991"), valorTotal, valorLiquido e itens.`;
+        // 2. OCR + Groq Fallback if Gemini failed (e.g. 429)
+        if (!success) {
+          console.log("[Direct Extraction] Todos os modelos Gemini falharam. Iniciando fallback para Groq com OCR... ");
+          const groqApiKey = process.env.GROQ_API_KEY;
+          if (!groqApiKey) {
+            throw new Error(`Gemini falhou (${errorMsg}) e GROQ_API_KEY não está configurada para fallback.`);
           }
 
-          const responseSchema = {
-            type: Type.OBJECT,
-            properties: {
-              documentType: { type: Type.STRING },
-              summary: { type: Type.STRING },
-              nome_paciente: { type: Type.STRING },
-              nome_paciente_confidence: { type: Type.NUMBER },
-              numero_atendimento: { type: Type.STRING },
-              numero_atendimento_confidence: { type: Type.NUMBER },
-              idade: { type: Type.NUMBER },
-              idade_confidence: { type: Type.NUMBER },
-              convenio: { type: Type.STRING },
-              convenio_confidence: { type: Type.NUMBER },
-              hospital: { 
-                type: Type.STRING,
-                description: "Nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar."
-              },
-              hospital_confidence: { type: Type.NUMBER },
-              data_nascimento: { type: Type.STRING },
-              data_nascimento_confidence: { type: Type.NUMBER },
-              data_atendimento: {
-                type: Type.STRING,
-                description: "Data de entrada/atendimento/internação/cirurgia do paciente, geralmente identificada na etiqueta por rótulos como 'Dt.Entr:', 'Dt. Entr:', 'Data Entrada:', 'Atend:', 'Dt. Adm:', 'Admissão:' ou 'Internação:'. Formato esperado: string como aparece na etiqueta (ex: '05/06/2026'). NUNCA confunda com a data de nascimento (geralmente rotulada como 'Dt.Nasc:' ou 'Nasc:')."
-              },
-              data_atendimento_confidence: { type: Type.NUMBER },
-              etiquetas: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    nome_paciente: { type: Type.STRING },
-                    nome_paciente_confidence: { type: Type.NUMBER },
-                    numero_atendimento: { type: Type.STRING },
-                    numero_atendimento_confidence: { type: Type.NUMBER },
-                    idade: { type: Type.NUMBER },
-                    idade_confidence: { type: Type.NUMBER },
-                    convenio: { type: Type.STRING },
-                    convenio_confidence: { type: Type.NUMBER },
-                    hospital: { 
-                      type: Type.STRING,
-                      description: "Nome do hospital ou clínica, geralmente na primeira linha ou cabeçalho da etiqueta hospitalar."
-                    },
-                    hospital_confidence: { type: Type.NUMBER },
-                    data_nascimento: { type: Type.STRING },
-                    data_nascimento_confidence: { type: Type.NUMBER },
-                    data_atendimento: {
-                      type: Type.STRING,
-                      description: "Data de entrada/atendimento/internação/cirurgia do paciente, geralmente identificada na etiqueta por rótulos como 'Dt.Entr:', 'Dt. Entr:', 'Data Entrada:', 'Atend:', 'Dt. Adm:', 'Admissão:' ou 'Internação:'. Formato esperado: string como aparece na etiqueta (ex: '05/06/2026'). NUNCA confunda com a data de nascimento (geralmente rotulada como 'Dt.Nasc:' ou 'Nasc:')."
-                    },
-                    data_atendimento_confidence: { type: Type.NUMBER }
-                  }
-                }
-              },
-              numeroNota: { 
-                type: Type.STRING, 
-                description: "O número identificador único da Nota Fiscal (ex: encontre o número destacado como '991', 'Número da Nota', 'Nota n°'). Deixe em branco se for etiqueta." 
-              },
-              dataEmissao: { 
-                type: Type.STRING, 
-                description: "A data de emissão exata da Nota Fiscal no formato DD/MM/AAAA ou AAAA-MM-DD. Deve ser extraída de campos como 'Data e Hora da emissão' ou similar (ex: se no texto diz 'Data e Hora da emissão: 15/05/2026 12:24:08', extraia exatamente '15/05/2026'). Deixe em branco se for etiqueta." 
-              },
-              emitente: { 
-                type: Type.STRING, 
-                description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais (NFS-e/Prefeitura/Nibo), preencha este campo OBRIGATORIAMENTE com a razão social ou nome do TOMADOR DE SERVIÇOS (o hospital ou contratante listado na nota como tomador/cliente, ex: 'ASSOCIACAO HOSPITALAR FILHAS DE NOSSA SENHORA DO MONTE CALVARIO'). NUNCA preencha com o emitente/prestador original de serviços médicos. Deixe em branco se for etiqueta." 
-              },
-              cnpjEmitente: { 
-                type: Type.STRING, 
-                description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais, preencha este campo OBRIGATORIAMENTE com o CNPJ do TOMADOR DE SERVIÇOS (o hospital ou contratante listado como tomador/cliente). NUNCA preencha com o CNPJ do prestador. Deixe em branco se for etiqueta." 
-              },
-              valorTotal: { 
-                type: Type.STRING, 
-                description: "O valor total bruto ou dos serviços faturados na Nota Fiscal (ex: 'R$ 1.500,00' ou '1500,00'). Deixe em branco ou zerado se for etiqueta." 
-              },
-              valorLiquido: {
-                type: Type.NUMBER,
-                description: "Valor líquido EXPLICITAMENTE escrito no documento na linha 'Valor Líquido: R$ X' (geralmente dentro da seção 'Discriminação do Serviço', não na tabela de cálculo de impostos no rodapé). Copie esse número exatamente como está escrito. NÃO calcule ou deduza este valor — apenas leia o que está escrito após 'Valor Líquido:'."
-              },
-              itens: {
-                type: Type.ARRAY,
-                description: "Array dos itens ou serviços de auditoria/consultoria médica faturados na nota.",
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    descricao: { type: Type.STRING },
-                    quantidade: { type: Type.NUMBER },
-                    valorUnitario: { type: Type.NUMBER },
-                    valorTotal: { type: Type.NUMBER }
-                  }
-                }
-              }
+          if (!extractedText || extractedText.trim().length === 0) {
+            extractedText = "[OCR não retornou texto detectável preliminarmente]";
+          }
+
+          console.log(`[Direct Extraction Back] Enviando texto extraído para Groq llama-3.3-70b-versatile. Tamanho do texto: ${extractedText.length}`);
+
+          const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${groqApiKey}`
             },
-            required: ["documentType", "summary", "etiquetas"]
-          };
+            body: JSON.stringify({
+              model: "llama-3.3-70b-versatile",
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content: `${systemPrompt}\n\nVocê deve analisar o texto bruto extraído via OCR abaixo e retornar OBRIGATORIAMENTE um objeto JSON puro atendendo precisamente aos schemas definidos de etiquetas ou notas fiscais.`
+                },
+                {
+                  role: "user",
+                  content: `Aqui está o texto bruto extraído:\n\n${extractedText}`
+                }
+              ],
+              temperature: 0.1
+            })
+          });
 
-          const result = await generateGeminiContentWithRetry(
-            modelName,
-            [filePart, promptPart],
-            systemPrompt,
-            "application/json",
-            responseSchema
-          );
+          if (!groqResponse.ok) {
+            const groqErrText = await groqResponse.text();
+            throw new Error(`Falha na API da Groq: ${groqResponse.status} - ${groqErrText}`);
+          }
 
-          if (result.text) {
-            resultData = JSON.parse(result.text.trim());
+          const groqData = await groqResponse.json();
+          const groqResultText = groqData.choices[0].message.content;
+          
+          if (groqResultText) {
+            resultData = JSON.parse(groqResultText.trim());
             success = true;
-            usedModel = `${modelName} (${result.usedKey})`;
-            usedProvider = "gemini";
-            quotaExhausted = !!result.quotaExhausted;
-            console.log(`[Direct Extraction] Sucesso com o modelo Gemini: ${modelName} usando a chave ${result.usedKey}`);
-            break;
+            usedModel = "llama-3.3-70b-versatile";
+            usedProvider = "groq";
+            console.log("[Direct Extraction Back] Sucesso com o fallback Groq llama-3.3-70b-versatile!");
           }
-        } catch (err: any) {
-          console.warn(`[Direct Extraction] Falha com o modelo Gemini ${modelName}:`, err.message);
-          errorMsg = err.message || "Erro desconhecido no Gemini";
-        }
-      }
-
-      // 2. OCR + Groq Fallback if Gemini failed (e.g. 429)
-      if (!success) {
-        console.log("[Direct Extraction] Todos os modelos Gemini falharam. Iniciando fallback para Groq com OCR... ");
-        const groqApiKey = process.env.GROQ_API_KEY;
-        if (!groqApiKey) {
-          throw new Error(`Gemini falhou (${errorMsg}) e GROQ_API_KEY não está configurada para fallback.`);
-        }
-
-        let extractedText = "";
-
-        try {
-          if (mimeType === "application/pdf" || filename?.toLowerCase().endsWith(".pdf")) {
-            console.log("[Direct Extraction Back] Extraindo texto do PDF com pdf-parse...");
-            const pdfParseModule = await import("pdf-parse") as any;
-            const pdfParse = pdfParseModule.default || pdfParseModule;
-            const pdfData = await pdfParse(fileBuffer);
-            extractedText = pdfData.text || "";
-          } else {
-            console.log("[Direct Extraction Back] Convertendo imagem e extraindo texto com Tesseract OCR...");
-            const TesseractModule = await import("tesseract.js") as any;
-            const Tesseract = TesseractModule.default || TesseractModule;
-            const ocrPromise = Tesseract.recognize(fileBuffer, "por+eng").then((r: any) => r.data.text || "");
-            // Strict timeout of 2.5s to avoid any infinite hanging during fallback OCR
-            extractedText = await withTimeout(ocrPromise, 2500, "");
-          }
-        } catch (ocrErr: any) {
-          console.error("[Direct Extraction Back] Falha ao processar OCR:", ocrErr.message);
-          extractedText = `[OCR falhou: ${ocrErr.message}]. Favor tentar inferir dados a partir dos caminhos possíveis.`;
-        }
-
-        if (!extractedText || extractedText.trim().length === 0) {
-          extractedText = "[OCR não retornou texto detectável]";
-        }
-
-        console.log(`[Direct Extraction Back] Enviando texto extraído para Groq llama-3.3-70b-versatile. Tamanho do texto: ${extractedText.length}`);
-
-        const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${groqApiKey}`
-          },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            response_format: { type: "json_object" },
-            messages: [
-              {
-                role: "system",
-                content: `${systemPrompt}\n\nVocê deve analisar o texto bruto extraído via OCR abaixo e retornar OBRIGATORIAMENTE um objeto JSON puro atendendo precisamente aos schemas definidos de etiquetas ou notas fiscais.`
-              },
-              {
-                role: "user",
-                content: `Aqui está o texto bruto extraído:\n\n${extractedText}`
-              }
-            ],
-            temperature: 0.1
-          })
-        });
-
-        if (!groqResponse.ok) {
-          const groqErrText = await groqResponse.text();
-          throw new Error(`Falha na API da Groq: ${groqResponse.status} - ${groqErrText}`);
-        }
-
-        const groqData = await groqResponse.json();
-        const groqResultText = groqData.choices[0].message.content;
-        
-        if (groqResultText) {
-          resultData = JSON.parse(groqResultText.trim());
-          success = true;
-          usedModel = "llama-3.3-70b-versatile";
-          usedProvider = "groq";
-          console.log("[Direct Extraction Back] Sucesso com o fallback Groq llama-3.3-70b-versatile!");
         }
       }
 
@@ -2140,6 +2212,24 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       // Unify Schema and Filter Name Contamination
       resultData = normalizeExtractionData(resultData);
       console.log("Pacientes recebidos da IA:", resultData?.etiquetas?.length || 0);
+
+      // Register Learning Log for Stats Panel (Background operation - no await for rapid response)
+      try {
+        db.collection("learning_logs").add({
+          timestamp: new Date(),
+          hospital: hospitalName,
+          provider: usedProvider,
+          model: usedModel
+        }).catch(err => console.error("Erro ao salvar log de aprendizado em segundo plano:", err));
+      } catch (logErr) {
+        console.error("Erro ao registrar log de aprendizado:", logErr);
+      }
+
+      // Save to learned_examples if extracted from Gemini/Groq (Background operation - no await)
+      if (usedProvider === "gemini" || usedProvider === "groq") {
+        saveLearnedExample(fileBase64, resultData, extractedText)
+          .catch(err => console.error("Erro ao salvar exemplo aprendido em segundo plano:", err));
+      }
 
       return res.status(200).json({
         success: true,
