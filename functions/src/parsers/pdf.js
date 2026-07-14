@@ -184,4 +184,4 @@ function extractCommonFields(text) {
   return fields;
 }
 
-module.exports = { parse };
+module.exports = { parse, extractSoulmvTable };

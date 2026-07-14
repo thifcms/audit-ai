@@ -24,6 +24,8 @@ import externalRoute from "./functions/src/routes/external.js";
 
 import dbUtils from "./functions/src/utils/db.js";
 const { getDB } = dbUtils;
+import pdfUtils from "./functions/src/parsers/pdf.js";
+const { extractSoulmvTable } = pdfUtils;
 
 dotenv.config();
 
@@ -1376,7 +1378,7 @@ async function startServer() {
       let success = false;
       let resultData: any = null;
       let usedModel = "";
-      let usedProvider: "gemini" | "groq" | "heuristica" | "local_cache" = "gemini";
+      let usedProvider: "gemini" | "groq" | "heuristica" | "local_cache" | "local_pattern" = "gemini";
       let errorMsg = "";
       let quotaExhausted = false;
 
@@ -1874,12 +1876,65 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       let success = false;
       let resultData: any = null;
       let usedModel = "";
-      let usedProvider: "gemini" | "groq" | "heuristica" | "local_cache" = "gemini";
+      let usedProvider: "gemini" | "groq" | "heuristica" | "local_cache" | "local_pattern" = "gemini";
       let errorMsg = "";
       let quotaExhausted = false;
 
       if (prompt) {
-        console.log("[Direct Extraction] Recebida requisição com prompt customizado. Pulando OCR local e indo direto pro Gemini.");
+        console.log("[Direct Extraction] Recebida requisição com prompt customizado. Tentando padrão local antes do Gemini.");
+        
+        try {
+          const pdfText = await parsePdfText(fileBuffer);
+          const localTable = extractSoulmvTable(pdfText);
+          
+          if (localTable && localTable.rows && localTable.rows.length > 0) {
+            console.log(`[Direct Extraction] Formato SOULMV identificado localmente (${localTable.rows.length} registros). Pulando Gemini.`);
+            
+            // Filter by activity based on prompt intent
+            const promptUpper = (prompt || "").toUpperCase();
+            const hasClinicalTerm = promptUpper.includes("CLINICO");
+            const hasSurgicalTerm = promptUpper.includes("CIRURGICO") || promptUpper.includes("CIRURGIAO") || promptUpper.includes("AUXILIAR") || promptUpper.includes("DIFERENTE");
+
+            let filteredRows = localTable.rows;
+            // Se tem termos cirúrgicos ou diz "DIFERENTE", assume modo Cirúrgico (Não-Clínico)
+            if (hasSurgicalTerm) {
+              console.log("[Direct Extraction] Modo detectado: CIRÚRGICO (Não-Clínico)");
+              filteredRows = localTable.rows.filter(r => (r.Atividade || "").toUpperCase() !== "CLINICO");
+            } 
+            // Se não tem termos cirúrgicos mas tem "CLINICO", assume modo Clínico
+            else if (hasClinicalTerm) {
+              console.log("[Direct Extraction] Modo detectado: CLÍNICO");
+              filteredRows = localTable.rows.filter(r => (r.Atividade || "").toUpperCase() === "CLINICO");
+            }
+
+            // Map to unified schema: { resultados: [{ nome_paciente, numero_atendimento, valor, data_atendimento }] }
+            const mappedResultados = filteredRows.map(row => {
+              // Convert "500,00" string to 500.00 number
+              const valorStr = (row["Vl.Repasse"] || "0").replace(/\./g, "").replace(",", ".");
+              const valorNum = parseFloat(valorStr) || 0;
+
+              return {
+                nome_paciente: row["Paciente"] || "",
+                numero_atendimento: row["Atendimento"] || "",
+                valor: valorNum,
+                data_atendimento: row["Data"] || ""
+              };
+            });
+
+            return res.status(200).json({
+              success: true,
+              usedModel: "N/A",
+              usedProvider: "local_pattern",
+              data: {
+                resultados: mappedResultados
+              }
+            });
+          }
+        } catch (localErr) {
+          console.warn("[Direct Extraction] Erro na tentativa de extração local:", localErr);
+        }
+
+        console.log("[Direct Extraction] Padrão local não encontrado ou inválido. Seguindo para o Gemini.");
         const filePart = {
           inlineData: {
             mimeType: mimeType || "image/jpeg",
