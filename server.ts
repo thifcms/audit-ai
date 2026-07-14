@@ -631,6 +631,9 @@ DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
   * Filtre ruídos de botões de interface, abas secundárias e termos repetitivos.
   * Localize as seções demográficas "DADOS DO PACIENTE" ou similar para capturar o nome do paciente correto, diferenciando de nomes de médicos.
 
+- ATENÇÃO ESPECIAL — DETECÇÃO DE TABELA DE AGENDA:
+  * Se a imagem contiver múltiplas linhas com dados de pacientes dispostos em formato de lista ou grade (mesmo que seja uma foto de tela de computador com reflexo ou baixa qualidade), classifique OBRIGATORIAMENTE como TABELA/LISTA DE AGENDA e extraia TODOS os pacientes visíveis. Não limite a extração a um único paciente se houver claramente mais de um na imagem. Sinais de tabela de agenda: múltiplas linhas com números seguidos de nomes, horários (ex: 13:00, 14:30), convênios e datas na mesma estrutura repetida.
+
 - PARA TABELAS DE AGENDA/CONSULTÓRIO (MÚLTIPLOS PACIENTES EM FORMATO DE TABELA/LISTA):
   * USE ESTA REGRA APENAS SE IDENTIFICAR EXPLICITAMENTE UMA ESTRUTURA DE TABELA/LISTA COM MÚLTIPLOS PACIENTES NA IMAGEM.
   * Identifique a estrutura de tabela onde cada linha ou registro possui informações dispostas na seguinte ordem ou formato semelhante: Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade | Status2
