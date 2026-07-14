@@ -294,8 +294,53 @@ async function saveLearnedExample(
     const pNumConf = typeof resultData.numero_atendimento_confidence === "number" ? resultData.numero_atendimento_confidence : (typeof principalEtiqueta.numero_atendimento_confidence === "number" ? principalEtiqueta.numero_atendimento_confidence : 0);
     const pConConf = typeof resultData.convenio_confidence === "number" ? resultData.convenio_confidence : (typeof principalEtiqueta.convenio_confidence === "number" ? principalEtiqueta.convenio_confidence : 0);
     const pHosConf = typeof resultData.hospital_confidence === "number" ? resultData.hospital_confidence : (typeof principalEtiqueta.hospital_confidence === "number" ? principalEtiqueta.hospital_confidence : 0);
+    const pDatConf = typeof resultData.data_atendimento_confidence === "number" ? resultData.data_atendimento_confidence : (typeof principalEtiqueta.data_atendimento_confidence === "number" ? principalEtiqueta.data_atendimento_confidence : 0);
+    const pNasConf = typeof resultData.data_nascimento_confidence === "number" ? resultData.data_nascimento_confidence : (typeof principalEtiqueta.data_nascimento_confidence === "number" ? principalEtiqueta.data_nascimento_confidence : 100);
 
     const auto_confidence_ok = (pNomConf >= 90) && (pNumConf >= 90) && (pConConf >= 90) && (pHosConf >= 90);
+
+    // 6. Automatic verification check:
+    const isFieldComplete = (field: any) => {
+      if (field === undefined || field === null) return false;
+      const str = String(field).trim();
+      return str !== "" && str !== "---";
+    };
+
+    const criticalsComplete = isFieldComplete(extracted_data.nome_paciente) &&
+                             isFieldComplete(extracted_data.numero_atendimento) &&
+                             isFieldComplete(extracted_data.convenio) &&
+                             isFieldComplete(extracted_data.data_atendimento);
+
+    // Confianca >= 90% em TODOS os campos (relevantes que estao preenchidos ou fornecidos)
+    const confKeys = [
+      "nome_paciente_confidence",
+      "numero_atendimento_confidence",
+      "convenio_confidence",
+      "data_atendimento_confidence",
+      "hospital_confidence",
+      "data_nascimento_confidence"
+    ];
+    let allConfidencesHigh = true;
+    let foundAnyConfidence = false;
+    
+    // Check main object
+    for (const key of confKeys) {
+      if (typeof resultData[key] === "number") {
+        foundAnyConfidence = true;
+        if (resultData[key] < 90) allConfidencesHigh = false;
+      }
+    }
+    // Check principal etiqueta object
+    for (const key of confKeys) {
+      if (typeof principalEtiqueta[key] === "number") {
+        foundAnyConfidence = true;
+        if (principalEtiqueta[key] < 90) allConfidencesHigh = false;
+      }
+    }
+
+    const shouldAutoVerify = criticalsComplete && allConfidencesHigh && foundAnyConfidence;
+    const verified_by_user = shouldAutoVerify ? true : false;
+
     const docId = db.collection("learned_examples").doc().id;
 
     const existingRef = await db.collection("learned_examples").where("image_hash", "==", image_hash).limit(1).get();
@@ -313,11 +358,11 @@ async function saveLearnedExample(
       auto_confidence_ok,
       corrected_by_user: false,
       correction_checked_at: null,
-      verified_by_user: false,
+      verified_by_user,
       created_at: serverTimestamp()
     });
 
-    console.log(`[Learned DB] Automatically saved learned example for ${hospital} with confidence ${confidence}. Auto-promotion eligible: ${auto_confidence_ok}`);
+    console.log(`[Learned DB] Automatically saved learned example for ${hospital} with confidence ${confidence}. Auto-promotion eligible: ${auto_confidence_ok}. Auto-verified: ${verified_by_user}`);
   } catch (err) {
     console.error("[Learned DB] Error saving learned example:", err);
   }
@@ -1408,6 +1453,10 @@ async function startServer() {
         if (isNfs) {
           systemPrompt = `Você é um sistema especialista em faturamento hospitalar e notas fiscais de altíssima precisão (nível OCR Humano).
 Você está processando uma Nota Fiscal de Serviço Eletrônica (NFS-e / Prefeitura / Nibo).
+
+INSTRUÇÃO SOBRE ROTAÇÃO DE IMAGENS:
+Fotos tiradas por câmeras Android podem ter metadados de rotação EXIF que afetam a orientação visual. Leia o texto em qualquer orientação (0°, 90°, 180°, 270°) e reoriente mentalmente para extrair os dados corretamente.
+
 DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS E REGRAS FINANCEIRAS ADITIVAS PARA NFS-e:
 1. O campo "documentType" deve ser definido obrigatoriamente como "nota_fiscal".
 2. O campo "emitente" deve ser obrigatoriamente preenchido com a razão social ou nome fantasia do TOMADOR DE SERVIÇOS (o hospital/cliente listado como tomador, pagador ou tomador de serviços). NÃO use o prestador de serviços.
@@ -1416,8 +1465,8 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS E REGRAS FINANCEIRAS ADITIVAS PARA NFS-e:
 5. O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão" ou similar (ex: "15/05/2026", preencha no formato DD/MM/AAAA ou AAAA-MM-DD).
 
 HIERARQUIA FINANCEIRA PARA NOTAS FISCAIS:
-- valorTotal (valor bruto): valor total dos serviços prestados, geralmente no topo ou meio da nota em destaque (ex: "Valor de Serviços", "Valor dos Serviços", etc.).
-- valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal. Se a nota apresentar qualquer imposto retido, o valorLiquido DEVE ser menor que o valorTotal. Procure especificamente pelo campo "Líquido a Receber". NÃO calcule impostos — leia o valor diretamente do documento.
+- valorTotal: valor total dos serviços, geralmente em destaque no topo/meio da nota.
+- valorLiquido: procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo explícito, repita o valorTotal.
 
 IDENTIFICAÇÃO DE PACIENTES, CONVÊNIOS E DATAS EM NOTAS FISCAIS:
 - Nome do paciente: em notas fiscais, o paciente raramente é o "Tomador do Serviço". Procure o nome do paciente nos campos "Discriminação dos Serviços", "Observações" ou "Informações Complementares" da nota e preencha no campo "nome_paciente" (e também no array "etiquetas" se aplicável).
@@ -1443,6 +1492,9 @@ REGRA GERAL PARA DADOS ILEGÍVEIS:
 - Se um campo estiver completamente ilegível devido a reflexo de luz, rasura, dobra ou corte severo (sendo impossível qualquer leitura humana confiável), retorne o campo como vazio ("") em vez de adivinhar, inventar ou preencher dados de preenchimento fictício.
 - Para letras e caracteres parcialmente visíveis (baixa resolução ou apagados), continue aplicando o esforço ativo de reconstrução descrita nas seções de etiquetas físicas.
 
+INSTRUÇÃO SOBRE ROTAÇÃO DE IMAGENS:
+Fotos tiradas por câmeras Android podem ter metadados de rotação EXIF que afetam a orientação visual. Leia o texto em qualquer orientação (0°, 90°, 180°, 270°) e reoriente mentalmente para extrair os dados corretamente.
+
 Diretrizes de extração para ETIQUETAS, TELAS DE SISTEMA DIGITAL, AGENDAS EM TABELA E FOLHAS CIRÚRGICAS:
 A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação ou telas de agenda/consultório hospitalar). Use o contexto para decifrar e extrair as informações corretas.
 
@@ -1458,7 +1510,7 @@ Campos típicos e variações de rótulos esperados:
 - "Convênio", "OPERADORA": Nome do plano de saúde ou operadora. O campo convenio é OBRIGATÓRIO.
   * Para fotos de telas de sistema: Busque por "Classe:" ou "Classe de convênio" como sinônimo para termo de convênio e operadora de saúde.
   * Para etiquetas físicas: Mantenha a busca existente por termos como 'Conv:', 'Convênio:', 'Plano:'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
-  * RECONHECIMENTO DE LOGOTIPO: se na tela ou etiqueta houver apenas um logotipo de operadora sem texto, reconheça a marca visualmente e retorne o nome do convênio (ex: logotipo do Bradesco → "Bradesco Saúde", logotipo da Unimed → "Unimed").
+  * RECONHECIMENTO DE LOGOTIPO SEM TEXTO: Se a tela ou etiqueta tiver apenas um logotipo de operadora sem texto, reconheça a marca visualmente e retorne o nome do convênio (ex: logotipo do Bradesco → "Bradesco Saúde", logotipo da Unimed → "Unimed").
 - "Hospital", "CLÍNICA", "Setor": Nome do hospital, clínica ou setor, geralmente na primeira linha, cabeçalho ou campo dedicado da tela.
 
 CAMPOS FINANCEIROS PARA TELAS DE COMPUTADOR E ETIQUETAS:
@@ -1466,6 +1518,7 @@ CAMPOS FINANCEIROS PARA TELAS DE COMPUTADOR E ETIQUETAS:
 
 DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
 1. PARA ETIQUETAS FÍSICAS INDIVIDUAIS:
+   - Garanta que a lógica de tabela de agenda só seja aplicada quando o modelo identificar explicitamente múltiplos pacientes em formato de lista/tabela. Para etiquetas físicas individuais, preserve o comportamento de OCR letra-por-letra sem tentar encaixar dados em colunas.
    - O modelo deve focar estritamente na leitura do único paciente presente na etiqueta.
    - Use comportamento de OCR clássico de altíssima fidelidade letra por letra. Para etiquetas físicas apagadas ou de baixa resolução, reconstrua os nomes e números a partir das letras visíveis, completando letra por letra.
    - NUNCA tente aplicar lógica de colunas ou encaixar os dados em uma estrutura de tabela. Isso corrompe os nomes de pacientes gerando textos embaralhados.
@@ -1477,6 +1530,7 @@ DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
 
 3. PARA TABELAS DE AGENDA/CONSULTÓRIO (MÚLTIPLOS PACIENTES EM FORMATO DE TABELA/LISTA):
    - USE ESTA REGRA APENAS SE IDENTIFICAR EXPLICITAMENTE UMA ESTRUTURA DE TABELA/LISTA COM MÚLTIPLOS PACIENTES NA IMAGEM.
+   - Se a imagem mostrar uma tela de sistema com uma grade/tabela contendo múltiplas linhas de pacientes com horários e convênios, trate cada linha como um paciente individual no array de etiquetas. NÃO force a classificação como tabela em casos ambíguos — mantenha a classificação atual que já funciona bem.
    - Identifique a estrutura de tabela onde cada linha ou registro possui informações dispostas na seguinte ordem ou formato semelhante: Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade | Status2
    - Exemplo real de linha: '5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026 13:27:40 42a'
    - Para cada uma das linhas detectadas na tabela, extraia um item correspondente no array 'etiquetas' preenchendo:
@@ -1488,7 +1542,7 @@ DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
 4. PARA FOLHA CIRÚRGICA / DESCRIÇÃO OPERATÓRIA:
    - Identifique os dados do cabeçalho do documento (geralmente no topo).
    - Extraia o nome do paciente, a data do procedimento e o convênio a partir do cabeçalho.
-   - ATENÇÃO EXTREMA: Não confunda o nome do cirurgião principal ou equipe médica (frequentemente listado em "Cirurgião", "Médico" ou "Dr(a).") com o nome do paciente. O nome do paciente geralmente está em um campo bem identificado como "Paciente:", "Nome:" ou "Beneficiário:".
+   - NUNCA confunda o nome do cirurgião principal ou equipe médica (frequentemente listado em "Cirurgião", "Médico", "Dr.", "Dr(a).") com o nome do paciente. O nome do paciente geralmente está em um campo bem identificado como "Paciente:", "Nome:" ou "Beneficiário:".
 
 Siga estas regras rigorosas:
 1. Identidade de Telas de Sistema e Filtragem de Ruído: Fotos de telas de sistemas de faturamento/cirurgia contêm ruído visual abundante (botões de interface, campos vazios, termos repetidos das abas do sistema ou texto de outras seções). Ignore qualquer ruído ou duplicados parciais e extraia estritamente os campos demográficos solicitados que forem legíveis e inequívocos.
@@ -1612,7 +1666,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                 },
                 valorLiquido: {
                   type: Type.NUMBER,
-                  description: "Valor líquido EXPLICITAMENTE escrito no documento na linha 'Valor Líquido: R$ X' (geralmente dentro da seção 'Discriminação do Serviço', não na tabela de cálculo de impostos no rodapé). Copie esse número exatamente como está escrito. NÃO calcule ou deduza este valor — apenas leia o que está escrito após 'Valor Líquido:'."
+                  description: "Valor líquido da nota fiscal. Procure EXCLUSIVAMENTE pelos campos 'Valor Líquido da Nota' ou 'Líquido a Receber' impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo explícito de forma literal, repita o valorTotal."
                 },
                 itens: {
                   type: Type.ARRAY,
@@ -1897,6 +1951,10 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
         if (isNfsByFilename) {
           systemPrompt = `Você é um sistema especialista em faturamento hospitalar e notas fiscais de altíssima precisão (nível OCR Humano).
 Você está processando uma Nota Fiscal de Serviço Eletrônica (NFS-e / Prefeitura / Nibo).
+
+INSTRUÇÃO SOBRE ROTAÇÃO DE IMAGENS:
+Fotos tiradas por câmeras Android podem ter metadados de rotação EXIF que afetam a orientação visual. Leia o texto em qualquer orientação (0°, 90°, 180°, 270°) e reoriente mentalmente para extrair os dados corretamente.
+
 DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS E REGRAS FINANCEIRAS ADITIVAS PARA NFS-e:
 1. O campo "documentType" deve ser definido obrigatoriamente como "nota_fiscal".
 2. O campo "emitente" deve ser obrigatoriamente preenchido com a razão social ou nome fantasia do TOMADOR DE SERVIÇOS (o hospital/cliente listado como tomador, pagador ou tomador de serviços). NÃO use o prestador de serviços.
@@ -1905,8 +1963,8 @@ DIRETRIZES DE EXTRAÇÃO OBRIGATÓRIAS E REGRAS FINANCEIRAS ADITIVAS PARA NFS-e:
 5. O campo "dataEmissao" deve ser extraído do campo "Data e Hora da emissão", "Data de Emissão" ou similar (ex: "15/05/2026", preencha no formato DD/MM/AAAA ou AAAA-MM-DD).
 
 HIERARQUIA FINANCEIRA PARA NOTAS FISCAIS:
-- valorTotal (valor bruto): valor total dos serviços prestados, geralmente no topo ou meio da nota em destaque (ex: "Valor de Serviços", "Valor dos Serviços", etc.).
-- valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal. Se a nota apresentar qualquer imposto retido, o valorLiquido DEVE ser menor que o valorTotal. Procure especificamente pelo campo "Líquido a Receber". NÃO calcule impostos — leia o valor diretamente do documento.
+- valorTotal: valor total dos serviços, geralmente em destaque no topo/meio da nota.
+- valorLiquido: procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo explícito, repita o valorTotal.
 
 IDENTIFICAÇÃO DE PACIENTES, CONVÊNIOS E DATAS EM NOTAS FISCAIS:
 - Nome do paciente: em notas fiscais, o paciente raramente é o "Tomador do Serviço". Procure o nome do paciente nos campos "Discriminação dos Serviços", "Observações" ou "Informações Complementares" da nota e preencha no campo "nome_paciente" (e também no array "etiquetas" se aplicável).
@@ -1919,15 +1977,15 @@ Retorne EXCLUSIVAMENTE o JSON estruturado atendendo a estas diretrizes de fatura
         } else {
           systemPrompt = `Você é um sistema especialista em faturamento hospitalar, etiquetas hospitalares e telas de sistema/agendas.
 Se a imagem for identificada como uma etiqueta hospitalar ou foto de tela de sistema/agenda, use o schema de etiqueta usual.
-Se, no entanto, a imagem contiver elements de "NOTA FISCAL", "NFS-e" ou "TOMADOR DE SERVIÇOS" (seja de prefeitura, Nibo ou etc.), extraia como uma NOTA FISCAL (documentType: "nota_fiscal") e siga estritamente estas regras:
+Se, no entanto, a imagem contiver elementos de "NOTA FISCAL", "NFS-e" ou "TOMADOR DE SERVIÇOS" (seja de prefeitura, Nibo ou etc.), extraia como uma NOTA FISCAL (documentType: "nota_fiscal") e siga estritamente estas regras:
 - O campo "emitente" deve ser obrigatoriamente preenchido com os dados do TOMADOR DE SERVIÇOS (o hospital/empresa contratante), NUNCA os dados do emitente/prestador original de serviços médicos.
 - O campo "cnpjEmitente" deve ser o CNPJ do TOMADOR DE SERVIÇOS.
-- O campo "dataEmissao" deve ser la data de emissão.
+- O campo "dataEmissao" deve ser a data de emissão.
 - O campo "numeroNota" deve ser o número identificador (ex: "991" ou similar).
 
 HIERARQUIA FINANCEIRA PARA NOTAS FISCAIS:
-  * valorTotal (valor bruto): valor total dos serviços prestados, geralmente no topo ou meio da nota em destaque.
-  * valorLiquido: valor final efetivamente recebido — procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo de valor líquido explícito, repita o valorTotal. Se a nota apresentar qualquer imposto retido, o valorLiquido DEVE ser menor que o valorTotal. Procure especificamente pelo campo "Líquido a Receber". NÃO calcule impostos — leia o valor diretamente do documento.
+  * valorTotal: valor total dos serviços, geralmente em destaque no topo/meio da nota.
+  * valorLiquido: procure EXCLUSIVAMENTE pelos campos "Valor Líquido da Nota" ou "Líquido a Receber" impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo explícito, repita o valorTotal.
 
 IDENTIFICAÇÃO DE PACIENTES, CONVÊNIOS E DATAS EM NOTAS FISCAIS:
   * Nome do paciente: em notas fiscais, o paciente raramente é o "Tomador do Serviço". Procure o nome do paciente nos campos "Discriminação dos Serviços", "Observações" ou "Informações Complementares" da nota e preencha no campo "nome_paciente" (e também no array "etiquetas" se aplicável).
@@ -1950,6 +2008,9 @@ REGRA GERAL PARA DADOS ILEGÍVEIS:
 - Se um campo estiver completamente ilegível devido a reflexo de luz, rasura, dobra ou corte severo (sendo impossível qualquer leitura humana confiável), retorne o campo como vazio ("") em vez de adivinhar, inventar ou preencher dados de preenchimento fictício.
 - Para letras e caracteres parcialmente visíveis (baixa resolução ou apagados), continue aplicando o effort de reconstrução descrita nas seções de etiquetas físicas.
 
+INSTRUÇÃO SOBRE ROTAÇÃO DE IMAGENS:
+Fotos tiradas por câmeras Android podem ter metadados de rotação EXIF que afetam a orientação visual. Leia o texto em qualquer orientação (0°, 90°, 180°, 270°) e reoriente mentalmente para extrair os dados corretamente.
+
 Para ETIQUETAS HOSPITALARES normais, TELAS DE SISTEMA DIGITAL, AGENDAS EM TABELA E FOLHAS CIRÚRGICAS:
 A imagem analisada pode ser tanto uma etiqueta física impressa quanto uma foto de tela de sistema hospitalar digital (telas de cadastro de cirurgia/internação ou telas de agenda/consultório).
 Identifique os dados demográficos (nome_paciente, numero_atendimento, idade, convenio, hospital, data_nascimento) e preencha o array de etiquetas seguindo estas regras aditivas:
@@ -1960,6 +2021,7 @@ CAMPOS FINANCEIROS PARA TELAS DE COMPUTADOR E ETIQUETAS:
 
 DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
 - PARA ETIQUETAS FÍSICAS INDIVIDUAIS:
+  * Garanta que a lógica de tabela de agenda só seja aplicada quando o modelo identificar explicitamente múltiplos pacientes em formato de lista/tabela. Para etiquetas físicas individuais, preserve o comportamento de OCR letra-por-letra sem tentar encaixar dados em colunas.
   * O modelo deve focar estritamente na leitura do único paciente presente na etiqueta.
   * Use comportamento de OCR clássico de altíssima fidelidade letra por letra. Para etiquetas físicas apagadas ou de baixa resolução, reconstrua os nomes e números a partir das letras visíveis, completando letra por letra.
   * NUNCA tente aplicar lógica de colunas ou encaixar os dados em uma estrutura de tabela. Isso corrompe os nomes de pacientes gerando textos embaralhados.
@@ -1971,6 +2033,7 @@ DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
 
 - PARA TABELAS DE AGENDA/CONSULTÓRIO (MÚLTIPLOS PACIENTES EM FORMATO DE TABELA/LISTA):
   * USE ESTA REGRA APENAS SE IDENTIFICAR EXPLICITAMENTE UMA ESTRUTURA DE TABELA/LISTA COM MÚLTIPLOS PACIENTES NA IMAGEM.
+  * Se a imagem mostrar uma tela de sistema com uma grade/tabela contendo múltiplas linhas de pacientes com horários e convênios, trate cada linha como um paciente individual no array de etiquetas. NÃO force a classificação como tabela em casos ambíguos — mantenha a classificação atual que já funciona bem.
   * Identifique a estrutura de tabela onde cada linha ou registro possui informações dispostas na seguinte ordem ou formato semelhante: Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade | Status2
   * Exemplo real de linha: '5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026 13:27:40 42a'
   * Para cada uma das linhas detectadas na tabela, extraia um item correspondente no array 'etiquetas' preenchendo:
@@ -1982,11 +2045,11 @@ DIRETRIZES DE EXTRAÇÃO SEPARADAS POR TIPO DE DOCUMENTO (MUITO IMPORTANTE):
 - PARA FOLHA CIRÚRGICA / DESCRIÇÃO OPERATÓRIA:
   * Identifique os dados do cabeçalho do documento (geralmente no topo).
   * Extraia o nome do paciente, a data do procedimento e o convênio a partir do cabeçalho.
-  * ATENÇÃO EXTREMA: Não confunda o nome do cirurgião principal ou equipe médica (frequentemente listado em "Cirurgião", "Médico" ou "Dr(a).") com o nome do paciente. O nome do paciente geralmente está em um campo bem identificado como "Paciente:", "Nome:" ou "Beneficiário:".
+  * NUNCA confunda o nome do cirurgião principal ou equipe médica (frequentemente listado em "Cirurgião", "Médico", "Dr.", "Dr(a).") com o nome do paciente. O nome do paciente geralmente está em um campo bem identificado como "Paciente:", "Nome:" ou "Beneficiário:".
 
 2. Data do Atendimento/Cirurgia/Internação: Para telas de sistema, inclua a busca pelo termo "Data da Cirurgia:", "Data de Entrada", "Data Agendada", "Data Internação" ou "Dt. Cirurgia:". Conserve termos de etiquetas físicas como "Dt.Entr:", "Atend:", "Dt. Adm:", "Admissão:", "Internação:", etc.
-3. Identificação do Convênio: Para telas de sistema, inclua a busca pelo termo "Classe:" ou "Classe de convênio" como sinônimo de convênio. Conserve termos de etiquetas físicas como 'Conv:', 'Convênio:', 'Plano:', 'OPERADORA'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
-   * RECONHECIMENTO DE LOGOTIPO: se na tela ou etiqueta houver apenas um logotipo de operadora sem texto, reconheça a marca visualmente e retorne o nome do convênio (ex: logotipo do Bradesco → "Bradesco Saúde", logotipo da Unimed → "Unimed").
+3. Identificação do Convênio: Para telas de sistema, inclua a busca pelo termo "Classe:" ou "Classe de convênio" as sinônimo de convênio. Conserve termos de etiquetas físicas como 'Conv:', 'Convênio:', 'Plano:', 'OPERADORA'. Exemplos de convênios: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular.
+   * RECONHECIMENTO DE LOGOTIPO SEM TEXTO: Se a tela ou etiqueta tiver apenas um logotipo de operadora sem texto, reconheça a marca visualmente e retorne o nome do convênio (ex: logotipo do Bradesco → "Bradesco Saúde", logotipo da Unimed → "Unimed").
 4. Ignorar Ruídos Visuais: Ignore botões, caixas de interface vazias, termos duplicados do layout de abas e textos secundários irrelevantes.
 5. O campo "hospital" deve conter o nome do hospital, clínica ou sector, geralmente no topo, cabeçalho ou campo dedicado da tela.
 
