@@ -2294,6 +2294,203 @@ Diretrizes:
     }
   });
 
+  // 1. POST /api/excel/suggest-mapping
+  // Recebe um array de nomes de colunas (cabeçalhos) e retorna um mapeamento inteligente
+  apiRouter.post("/excel/suggest-mapping", async (req, res) => {
+    try {
+      const { headers } = req.body;
+      if (!headers || !Array.isArray(headers) || headers.length === 0) {
+        return res.status(400).json({ error: "O campo 'headers' é obrigatório e deve ser um array não vazio de strings." });
+      }
+
+      console.log(`[Excel Mapping] Recebidos ${headers.length} cabeçalhos para mapeamento inteligente.`);
+
+      const systemInstruction = 
+        "Você é o Especialista em Integração e Conectividade da Audit IA. Sua tarefa é mapear as colunas de uma planilha Excel hospitalar para os campos internos do nosso sistema.\n\n" +
+        "Campos internos do sistema:\n" +
+        "- patientName (nome do paciente)\n" +
+        "- attendanceNumber (número de atendimento/guia/registro)\n" +
+        "- insurance (convênio/plano de saúde/operadora)\n" +
+        "- date (data da cirurgia/atendimento/procedimento)\n" +
+        "- feesPaid (honorários/valor bruto pago pelo hospital/valor cobrado)\n" +
+        "- receivedAmount (valor efetivamente recebido pelo médico/líquido/pago)\n" +
+        "- hospital (nome do hospital/unidade)\n" +
+        "- procedure (procedimento/cirurgia realizada/código de procedimento)\n\n" +
+        "Analise os cabeçalhos enviados e associe cada campo do sistema à coluna correspondente mais provável. Se não houver correspondência razoável para algum campo, associe-o a null.\n" +
+        "Sua resposta deve ser estritamente no formato JSON estruturado.";
+
+      const prompt = `Aqui está a lista de cabeçalhos das colunas do Excel recebido:\n${JSON.stringify(headers)}\n\nRetorne o mapeamento no formato JSON solicitado.`;
+
+      const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+          mapping: {
+            type: Type.OBJECT,
+            properties: {
+              patientName: { type: Type.STRING, nullable: true },
+              attendanceNumber: { type: Type.STRING, nullable: true },
+              insurance: { type: Type.STRING, nullable: true },
+              date: { type: Type.STRING, nullable: true },
+              feesPaid: { type: Type.STRING, nullable: true },
+              receivedAmount: { type: Type.STRING, nullable: true },
+              hospital: { type: Type.STRING, nullable: true },
+              procedure: { type: Type.STRING, nullable: true }
+            },
+            required: [
+              "patientName", "attendanceNumber", "insurance", "date", 
+              "feesPaid", "receivedAmount", "hospital", "procedure"
+            ]
+          },
+          confidence: {
+            type: Type.OBJECT,
+            properties: {
+              patientName: { type: Type.NUMBER },
+              attendanceNumber: { type: Type.NUMBER },
+              insurance: { type: Type.NUMBER },
+              date: { type: Type.NUMBER },
+              feesPaid: { type: Type.NUMBER },
+              receivedAmount: { type: Type.NUMBER },
+              hospital: { type: Type.NUMBER },
+              procedure: { type: Type.NUMBER }
+            },
+            required: [
+              "patientName", "attendanceNumber", "insurance", "date", 
+              "feesPaid", "receivedAmount", "hospital", "procedure"
+            ]
+          },
+          explanation: { type: Type.STRING }
+        },
+        required: ["mapping", "confidence", "explanation"]
+      };
+
+      const { text, usedModel } = await generateGeminiContentWithRetry(
+        "gemini-flash-latest",
+        prompt,
+        systemInstruction,
+        "application/json",
+        responseSchema
+      );
+
+      const parsedResponse = JSON.parse(text);
+      return res.status(200).json({
+        success: true,
+        usedModel,
+        ...parsedResponse
+      });
+
+    } catch (err: any) {
+      console.error("[Excel Mapping Error] Erro ao sugerir mapeamento de colunas:", err);
+      const isQuota = err.status === 429 || String(err.message).includes("Cota de processamento");
+      return res.status(isQuota ? 429 : 500).json({
+        success: false,
+        error: err.message || "Erro crítico ao sugerir mapeamento de colunas.",
+        quotaExhausted: isQuota
+      });
+    }
+  });
+
+  // 2. POST /api/reconcile/match
+  // Recebe uma lista de cirurgias cadastradas + conteúdo bruto do relatório hospitalar e cruza as informações
+  apiRouter.post("/reconcile/match", async (req, res) => {
+    try {
+      const { surgeries, hospitalReport } = req.body;
+      if (!surgeries || !Array.isArray(surgeries)) {
+        return res.status(400).json({ error: "O campo 'surgeries' é obrigatório e deve ser um array." });
+      }
+      if (!hospitalReport || typeof hospitalReport !== "string") {
+        return res.status(400).json({ error: "O campo 'hospitalReport' é obrigatório e deve ser uma string de texto bruto." });
+      }
+
+      console.log(`[Reconcile Match] Iniciando cruzamento inteligente para ${surgeries.length} cirurgias.`);
+
+      const systemInstruction = 
+        "Você é o Especialista em Integração e Conectividade da Audit IA, encarregado da reconciliação de dados entre o MedNote e relatórios financeiros hospitalares.\n\n" +
+        "Sua tarefa é realizar o cruzamento inteligente de dados médicos. Você receberá uma lista de cirurgias cadastradas no MedNote (com id, nome do paciente, data da cirurgia, procedimento, etc.) e o conteúdo de texto bruto extraído de um relatório financeiro hospitalar.\n\n" +
+        "Seu objetivo é cruzar cada cirurgia cadastrada com a linha ou trecho de texto correspondente do relatório hospitalar, identificando qual linha do relatório descreve aquela cirurgia. Faça o cruzamento mesmo se houver grafias ligeiramente diferentes, abreviações (ex: 'G. Salvini' = 'Gianlucca Salvini Barbosa'), ou pequenas divergências de valores ou datas.\n\n" +
+        "Sua resposta deve ser estritamente no formato JSON estruturado.";
+
+      const prompt = `Lista de cirurgias cadastradas no MedNote:\n${JSON.stringify(surgeries)}\n\nRelatório financeiro hospitalar bruto:\n${hospitalReport}\n\nAnalise detalhadamente cada cirurgia e faça o cruzamento de dados. Retorne a resposta estruturada em JSON contendo matches, unmatchedSurgeries, unmatchedReportLines e summary.`;
+
+      const responseSchema = {
+        type: Type.OBJECT,
+        properties: {
+          matches: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                surgeryId: { type: Type.STRING },
+                patientName: { type: Type.STRING },
+                matchedLineText: { type: Type.STRING },
+                confidence: { type: Type.NUMBER }, // de 0.0 a 1.0
+                reason: { type: Type.STRING },
+                status: { type: Type.STRING } // 'matched', 'partial' ou 'unmatched'
+              },
+              required: ["surgeryId", "patientName", "matchedLineText", "confidence", "reason", "status"]
+            }
+          },
+          unmatchedSurgeries: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                surgeryId: { type: Type.STRING },
+                patientName: { type: Type.STRING },
+                reason: { type: Type.STRING }
+              },
+              required: ["surgeryId", "patientName", "reason"]
+            }
+          },
+          unmatchedReportLines: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                lineText: { type: Type.STRING },
+                reason: { type: Type.STRING }
+              },
+              required: ["lineText", "reason"]
+            }
+          },
+          summary: {
+            type: Type.OBJECT,
+            properties: {
+              totalSurgeries: { type: Type.NUMBER },
+              matchedCount: { type: Type.NUMBER },
+              unmatchedCount: { type: Type.NUMBER }
+            },
+            required: ["totalSurgeries", "matchedCount", "unmatchedCount"]
+          }
+        },
+        required: ["matches", "unmatchedSurgeries", "unmatchedReportLines", "summary"]
+      };
+
+      const { text, usedModel } = await generateGeminiContentWithRetry(
+        "gemini-flash-latest",
+        prompt,
+        systemInstruction,
+        "application/json",
+        responseSchema
+      );
+
+      const parsedResponse = JSON.parse(text);
+      return res.status(200).json({
+        success: true,
+        usedModel,
+        ...parsedResponse
+      });
+
+    } catch (err: any) {
+      console.error("[Reconcile Match Error] Erro ao cruzar dados de cirurgias:", err);
+      const isQuota = err.status === 429 || String(err.message).includes("Cota de processamento");
+      return res.status(isQuota ? 429 : 500).json({
+        success: false,
+        error: err.message || "Erro crítico durante o cruzamento de reconciliação.",
+        quotaExhausted: isQuota
+      });
+    }
+  });
+
   // --- Health Check Route ---
   app.get("/health", (req, res) => {
     res.status(200).json({
