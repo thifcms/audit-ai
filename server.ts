@@ -1822,7 +1822,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
   // Public Extraction endpoint (No Auth)
   app.post("/public/extract", async (req, res) => {
     try {
-      const { fileBase64, filename, mimeType, expectedType, modelStrategy } = req.body;
+      const { fileBase64, filename, mimeType, expectedType, modelStrategy, prompt, schema } = req.body;
       if (!fileBase64) {
         return res.status(400).json({ error: "O campo fileBase64 é obrigatório." });
       }
@@ -1877,6 +1877,71 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       let usedProvider: "gemini" | "groq" | "heuristica" | "local_cache" = "gemini";
       let errorMsg = "";
       let quotaExhausted = false;
+
+      if (prompt) {
+        console.log("[Direct Extraction] Recebida requisição com prompt customizado. Pulando OCR local e indo direto pro Gemini.");
+        const filePart = {
+          inlineData: {
+            mimeType: mimeType || "image/jpeg",
+            data: fileBase64
+          }
+        };
+
+        for (const modelName of models) {
+          try {
+            console.log(`[Direct Extraction] Tentando modelo Gemini (Custom Prompt): ${modelName}...`);
+            const sysInstr = "Você é um sistema especialista em extração de dados médicos e faturamento.";
+            const responseMimeType = schema ? "application/json" : undefined;
+            const responseSchema = schema ? schema : undefined;
+
+            const response = await generateGeminiContentWithRetry(
+              modelName,
+              [prompt, filePart],
+              sysInstr,
+              responseMimeType,
+              responseSchema
+            );
+
+            const text = response.text;
+            
+            if (schema) {
+               const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+               const jsonText = match ? match[1] : text;
+               resultData = JSON.parse(jsonText);
+            } else {
+               try {
+                 const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+                 const jsonText = match ? match[1] : text;
+                 resultData = JSON.parse(jsonText);
+               } catch {
+                 resultData = { raw_text: text };
+               }
+            }
+
+            success = true;
+            usedModel = modelName;
+            break;
+          } catch (e: any) {
+            console.error(`[Direct Extraction Custom Prompt] Falha no modelo ${modelName}:`, e.message);
+            if (e.message.includes("429") || e.message.includes("quota")) quotaExhausted = true;
+            errorMsg = e.message;
+          }
+        }
+
+        if (success) {
+          return res.status(200).json({
+            success: true,
+            usedModel,
+            usedProvider,
+            data: resultData
+          });
+        } else {
+          return res.status(500).json({ 
+            error: "Falha na extração com prompt customizado após esgotar modelos",
+            details: errorMsg
+          });
+        }
+      }
 
       // 0. Preliminary Tesseract OCR/Text extraction so we can identify hospital & template cache
       let extractedText = "";
