@@ -250,6 +250,7 @@ router.post("/from-ids", express.json({ limit: "10mb" }), async (req, res, next)
       parciais:      reconciliation.results.filter(r => r.status === "PARCIAL"),
       glosas:        reconciliation.results.filter(r => r.status === "GLOSA"),
       naoEncontrados:reconciliation.results.filter(r => r.status === "NÃO ENCONTRADO"),
+      extrasNoHospital: reconciliation.notInPatientList,
       allResults:    reconciliation.results
     });
 
