@@ -90,6 +90,31 @@ router.post("/", upload.fields([
       });
     }
 
+    // ── 2.5. Filtra por Atividade se houver coluna Atividade ──────────────
+    if (tableHospital && Array.isArray(tableHospital.rows)) {
+      const isMedNote = appId && (appId.toLowerCase().includes("note") || appId.toLowerCase().includes("cirur"));
+      const expectedAtividade = isMedNote ? "CIRURGICO" : "CLINICO";
+      
+      console.log(`[Reconcile Route] App Context ID: ${appId}. Esperado Atividade: ${expectedAtividade}`);
+      
+      const originalCount = tableHospital.rows.length;
+      const filteredRows = tableHospital.rows.filter(row => {
+        const atividadeKey = Object.keys(row).find(k => k.toLowerCase() === "atividade");
+        if (!atividadeKey) return true; // Se não tem coluna Atividade, mantém
+        
+        const val = String(row[atividadeKey]).trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (expectedAtividade === "CLINICO") {
+          return val === "CLINICO";
+        } else {
+          // Para CIRURGICO (MedNote), aceita qualquer coisa que NÃO seja CLINICO
+          return val !== "CLINICO";
+        }
+      });
+      
+      console.log(`[Reconcile Route] Filtrados registros do hospital: ${filteredRows.length} de ${originalCount}`);
+      tableHospital.rows = filteredRows;
+    }
+
     // ── 3. Reconcilia ────────────────────────────────────────────────────
     const reconciliation = reconcilePatients(tablePatients, tableHospital, {
       matchByAtendimento: matchBy === "atendimento" || matchBy === "ambos",

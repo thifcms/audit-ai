@@ -46,7 +46,8 @@ const FIELD_ALIASES = {
   // Valor pago
   valorPago: [
     "valor_pago", "valor pago", "pago", "vl_pago", "paid", "valor_liberado",
-    "liberado", "aprovado", "valor_aprovado", "vl_aprovado", "vl_liberado"
+    "liberado", "aprovado", "valor_aprovado", "vl_aprovado", "vl_liberado",
+    "vl_repasse", "vl.repasse", "repasse", "valor_repasse", "vl repasse"
   ],
   // Status de pagamento
   statusPagamento: [

@@ -1,5 +1,67 @@
 const pdfParse = require("pdf-parse");
 
+/** Tenta extrair tabela especializada do formato SOULMV repasse médico */
+function extractSoulmvTable(text) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  const rows = [];
+  
+  // Padrão de linha SOULMV:
+  // Remessa Conta Atendimento Paciente CP Atividade Convênio Data Quant Qt.CH Vl.Repasse [asterisco]
+  const soulmvRegex = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s+([A-Z0-9])\s+(CLINICO|CLÍNICO|CIRURGIAO|CIRURGIÃO|CIRURGICO|CIRÚRGICO|PRIMEIRO AUXILIAR|SEGUNDO AUXILIAR|TERCEIRO AUXILIAR|ANESTESISTA|INSTRUMENTADOR)\s+(.+?)\s+(\d{2}\/\d{2}\/\d{2,4})\s+(\d+)\s+(\d+)\s+([\d.,]+)\s*(\*)?\s*$/i;
+  
+  // Padrão genérico de fallback para registrar atividades desconhecidas em log
+  const soulmvGenericRegex = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s+([A-Z0-9])\s+(.+?)\s+(\d{2}\/\d{2}\/\d{2,4})\s+(\d+)\s+(\d+)\s+([\d.,]+)\s*(\*)?\s*$/i;
+
+  for (const line of lines) {
+    const match = line.match(soulmvRegex);
+    if (match) {
+      const remessa = match[1];
+      const conta = match[2];
+      const atendimento = match[3];
+      const paciente = match[4].trim();
+      const cp = match[5];
+      const atividade = match[6].trim().toUpperCase();
+      const convenio = match[7].trim();
+      const data = match[8];
+      const quant = match[9];
+      const qtCh = match[10];
+      const vlRepasse = match[11];
+      const hasAsterisk = !!match[12];
+
+      rows.push({
+        "Remessa": remessa,
+        "Conta": conta,
+        "Atendimento": atendimento,
+        "Paciente": paciente,
+        "CP": cp,
+        "Atividade": atividade,
+        "Convênio": convenio,
+        "Data": data,
+        "Quant.": quant,
+        "Qt.CH": qtCh,
+        "Vl.Repasse": vlRepasse,
+        "Status": hasAsterisk ? "Asterisco" : ""
+      });
+    } else if (line.match(soulmvGenericRegex)) {
+      console.warn(`[SOULMV Parser] Linha ignorada por Atividade não reconhecida: "${line.trim()}"`);
+    }
+  }
+
+  if (rows.length > 0) {
+    return {
+      sheetName: "Relatório SOULMV",
+      headers: [
+        "Remessa", "Conta", "Atendimento", "Paciente", "CP", "Atividade", 
+        "Convênio", "Data", "Quant.", "Qt.CH", "Vl.Repasse", "Status"
+      ],
+      rows: rows
+    };
+  }
+
+  return null;
+}
+
 /**
  * Parser de PDF.
  * Extrai texto bruto, número de páginas e metadados.
@@ -18,7 +80,14 @@ async function parse(buffer, filename) {
   const rawText = data.text || "";
 
   // Extrai tabelas simples (linhas com separadores consistentes)
-  const tables = extractTablesFromText(rawText);
+  let tables = extractTablesFromText(rawText);
+
+  // Se for um formato SOULMV, tenta extração especializada
+  const soulmvTable = extractSoulmvTable(rawText);
+  if (soulmvTable) {
+    tables = [soulmvTable, ...tables];
+    console.log(`[SOULMV Parser] Tabela SOULMV identificada e extraída com ${soulmvTable.rows.length} registros.`);
+  }
 
   // Extrai campos comuns de documentos fiscais
   const fields = extractCommonFields(rawText);
