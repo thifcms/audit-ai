@@ -438,72 +438,78 @@ async function saveLearnedExample(
   try {
     const db = getDB();
     const image_hash = getImageHash(fileBase64);
-    const hospital = detectHospitalName(extractedText || resultData.summary || "");
     
-    const principalEtiqueta = resultData?.etiquetas?.[0] || {};
-    const extracted_data = {
-      nome_paciente: principalEtiqueta.nome_paciente || resultData.nome_paciente || "",
-      numero_atendimento: principalEtiqueta.numero_atendimento || resultData.numero_atendimento || "",
-      convenio: principalEtiqueta.convenio || resultData.convenio || "",
-      data_atendimento: principalEtiqueta.data_atendimento || resultData.data_atendimento || ""
-    };
-
-    const avgConfidence = (
-      (resultData.nome_paciente_confidence || 100) +
-      (resultData.numero_atendimento_confidence || 100) +
-      (resultData.convenio_confidence || 100)
-    ) / 3;
-
-    const confidence = avgConfidence >= 75 ? "high" : "low";
+    const docType = String(resultData.documentType || "etiqueta_hospitalar").toLowerCase().trim();
+    const isNotaFiscal = docType === "nota_fiscal";
     
-    // Auto confidence promotion checks: nome, numero_atendimento, convenio and hospital must all be >= 90
-    const pNomConf = typeof resultData.nome_paciente_confidence === "number" ? resultData.nome_paciente_confidence : (typeof principalEtiqueta.nome_paciente_confidence === "number" ? principalEtiqueta.nome_paciente_confidence : 0);
-    const pNumConf = typeof resultData.numero_atendimento_confidence === "number" ? resultData.numero_atendimento_confidence : (typeof principalEtiqueta.numero_atendimento_confidence === "number" ? principalEtiqueta.numero_atendimento_confidence : 0);
-    const pConConf = typeof resultData.convenio_confidence === "number" ? resultData.convenio_confidence : (typeof principalEtiqueta.convenio_confidence === "number" ? principalEtiqueta.convenio_confidence : 0);
-    const pHosConf = typeof resultData.hospital_confidence === "number" ? resultData.hospital_confidence : (typeof principalEtiqueta.hospital_confidence === "number" ? principalEtiqueta.hospital_confidence : 0);
-    const pDatConf = typeof resultData.data_atendimento_confidence === "number" ? resultData.data_atendimento_confidence : (typeof principalEtiqueta.data_atendimento_confidence === "number" ? principalEtiqueta.data_atendimento_confidence : 0);
-    const pNasConf = typeof resultData.data_nascimento_confidence === "number" ? resultData.data_nascimento_confidence : (typeof principalEtiqueta.data_nascimento_confidence === "number" ? principalEtiqueta.data_nascimento_confidence : 100);
-
-    const auto_confidence_ok = (pNomConf >= 90) && (pNumConf >= 90) && (pConConf >= 90) && (pHosConf >= 90);
-
-    // 6. Automatic verification check:
+    let hospital = "";
+    let extracted_data: any = {};
+    let criticalsComplete = false;
+    let auto_confidence_ok = false;
+    let avgConfidence = 100;
+    
     const isFieldComplete = (field: any) => {
       if (field === undefined || field === null) return false;
       const str = String(field).trim();
       return str !== "" && str !== "---";
     };
 
-    const criticalsComplete = isFieldComplete(extracted_data.nome_paciente) &&
-                             isFieldComplete(extracted_data.numero_atendimento) &&
-                             isFieldComplete(extracted_data.convenio) &&
-                             isFieldComplete(extracted_data.data_atendimento);
+    if (isNotaFiscal) {
+      // In invoices, the 'emitente' represents the tomador (hospital/client pagador)
+      hospital = resultData.emitente || detectHospitalName(extractedText || resultData.summary || "") || "Outro";
+      extracted_data = {
+        emitente: resultData.emitente || "",
+        cnpjEmitente: resultData.cnpjEmitente || "",
+        valorTotal: parseBrazilianDecimal(resultData.valorTotal),
+        valorLiquido: parseBrazilianDecimal(resultData.valorLiquido),
+        numeroNota: resultData.numeroNota || "",
+        dataEmissao: resultData.dataEmissao || ""
+      };
+      
+      const valTotOk = extracted_data.valorTotal > 0 || extracted_data.valorLiquido > 0;
 
-    // Confianca >= 90% em TODOS os campos (relevantes que estao preenchidos ou fornecidos)
-    const confKeys = [
-      "nome_paciente_confidence",
-      "numero_atendimento_confidence",
-      "convenio_confidence",
-      "data_atendimento_confidence",
-      "hospital_confidence",
-      "data_nascimento_confidence"
-    ];
-    let allConfidencesHigh = true;
-    let foundAnyConfidence = false;
-    
-    // Check main object
-    for (const key of confKeys) {
-      if (typeof resultData[key] === "number") {
-        foundAnyConfidence = true;
-        if (resultData[key] < 90) allConfidencesHigh = false;
-      }
+      criticalsComplete = isFieldComplete(extracted_data.emitente) &&
+                          valTotOk &&
+                          isFieldComplete(extracted_data.numeroNota) &&
+                          isFieldComplete(extracted_data.dataEmissao);
+                          
+      const pEmiConf = typeof resultData.emitente_confidence === "number" ? resultData.emitente_confidence : 100;
+      const pNumNConf = typeof resultData.numeroNota_confidence === "number" ? resultData.numeroNota_confidence : 100;
+      const pDatEConf = typeof resultData.dataEmissao_confidence === "number" ? resultData.dataEmissao_confidence : 100;
+      const pValTConf = typeof resultData.valorTotal_confidence === "number" ? resultData.valorTotal_confidence : 100;
+      const pValLConf = typeof resultData.valorLiquido_confidence === "number" ? resultData.valorLiquido_confidence : 100;
+      
+      auto_confidence_ok = (pEmiConf >= 90) && (pNumNConf >= 90) && (pDatEConf >= 90) && (pValTConf >= 90) && (pValLConf >= 90);
+      avgConfidence = (pEmiConf + pNumNConf + pDatEConf + pValTConf + pValLConf) / 5;
+    } else {
+      hospital = detectHospitalName(extractedText || resultData.summary || "");
+      const principalEtiqueta = resultData?.etiquetas?.[0] || {};
+      extracted_data = {
+        nome_paciente: principalEtiqueta.nome_paciente || resultData.nome_paciente || "",
+        numero_atendimento: principalEtiqueta.numero_atendimento || resultData.numero_atendimento || "",
+        convenio: principalEtiqueta.convenio || resultData.convenio || "",
+        data_atendimento: principalEtiqueta.data_atendimento || resultData.data_atendimento || ""
+      };
+      
+      criticalsComplete = isFieldComplete(extracted_data.nome_paciente) &&
+                          isFieldComplete(extracted_data.numero_atendimento) &&
+                          isFieldComplete(extracted_data.convenio) &&
+                          isFieldComplete(extracted_data.data_atendimento);
+                          
+      const pNomConf = typeof resultData.nome_paciente_confidence === "number" ? resultData.nome_paciente_confidence : (typeof principalEtiqueta.nome_paciente_confidence === "number" ? principalEtiqueta.nome_paciente_confidence : 0);
+      const pNumConf = typeof resultData.numero_atendimento_confidence === "number" ? resultData.numero_atendimento_confidence : (typeof principalEtiqueta.numero_atendimento_confidence === "number" ? principalEtiqueta.numero_atendimento_confidence : 0);
+      const pConConf = typeof resultData.convenio_confidence === "number" ? resultData.convenio_confidence : (typeof principalEtiqueta.convenio_confidence === "number" ? principalEtiqueta.convenio_confidence : 0);
+      const pHosConf = typeof resultData.hospital_confidence === "number" ? resultData.hospital_confidence : (typeof principalEtiqueta.hospital_confidence === "number" ? principalEtiqueta.hospital_confidence : 0);
+      
+      auto_confidence_ok = (pNomConf >= 90) && (pNumConf >= 90) && (pConConf >= 90) && (pHosConf >= 90);
+      avgConfidence = (
+        (resultData.nome_paciente_confidence || 100) +
+        (resultData.numero_atendimento_confidence || 100) +
+        (resultData.convenio_confidence || 100)
+      ) / 3;
     }
-    // Check principal etiqueta object
-    for (const key of confKeys) {
-      if (typeof principalEtiqueta[key] === "number") {
-        foundAnyConfidence = true;
-        if (principalEtiqueta[key] < 90) allConfidencesHigh = false;
-      }
-    }
+
+    const confidence = avgConfidence >= 75 ? "high" : "low";
 
     const shouldAutoVerify = criticalsComplete;
     const verified_by_user = shouldAutoVerify ? true : false;
@@ -520,6 +526,7 @@ async function saveLearnedExample(
       id: docId,
       hospital,
       image_hash,
+      documentType: docType,
       extracted_data,
       confidence,
       auto_confidence_ok,
@@ -529,7 +536,7 @@ async function saveLearnedExample(
       created_at: dbServerTimestamp()
     });
 
-    console.log(`[Learned DB] Automatically saved learned example for ${hospital} with confidence ${confidence}. Auto-promotion eligible: ${auto_confidence_ok}. Auto-verified: ${verified_by_user}`);
+    console.log(`[Learned DB] Automatically saved learned example for ${hospital} (${docType}) with confidence ${confidence}. Auto-promotion eligible: ${auto_confidence_ok}. Auto-verified: ${verified_by_user}`);
   } catch (err) {
     console.error("[Learned DB] Error saving learned example:", err);
   }
@@ -1284,12 +1291,21 @@ async function startServer() {
       
       const total_examples = examplesSnap.size;
       const by_hospital: { [key: string]: number } = {};
+      const by_hospital_etiqueta: { [key: string]: number } = {};
+      const by_hospital_nota_fiscal: { [key: string]: number } = {};
       
       examplesSnap.forEach(doc => {
         const d = doc.data();
         if (d.verified_by_user === true && d.corrected_by_user === false) {
           const hosp = d.hospital || "Outro";
-          by_hospital[hosp] = (by_hospital[hosp] || 0) + 1;
+          const docType = String(d.documentType || "etiqueta_hospitalar").toLowerCase().trim();
+          
+          if (docType === "nota_fiscal") {
+            by_hospital_nota_fiscal[hosp] = (by_hospital_nota_fiscal[hosp] || 0) + 1;
+          } else {
+            by_hospital_etiqueta[hosp] = (by_hospital_etiqueta[hosp] || 0) + 1;
+            by_hospital[hosp] = (by_hospital[hosp] || 0) + 1; // Backwards compatibility
+          }
         }
       });
 
@@ -1321,6 +1337,8 @@ async function startServer() {
         success: true,
         total_examples,
         by_hospital,
+        by_hospital_etiqueta,
+        by_hospital_nota_fiscal,
         gemini_calls_last_7d,
         local_cache_hits_last_7d
       });
@@ -1331,6 +1349,8 @@ async function startServer() {
         error: "Erro de permissão ou conexão no Firestore para a coleção de estatísticas.",
         total_examples: 0,
         by_hospital: {},
+        by_hospital_etiqueta: {},
+        by_hospital_nota_fiscal: {},
         gemini_calls_last_7d: 0,
         local_cache_hits_last_7d: 0,
         code: err.message?.includes("Missing or insufficient permissions") ? "firestore/permission-denied" : "generic"
@@ -1393,23 +1413,43 @@ async function startServer() {
         return res.status(200).json({ success: true, message: "Exemplo excluído com sucesso." });
       }
 
+      const docType = String(docSnap.data()?.documentType || "etiqueta_hospitalar").toLowerCase().trim();
+      const isNotaFiscal = docType === "nota_fiscal";
+
       const updateData: any = {
         verified_by_user: true,
         confidence: "high"
       };
 
       if (extracted_data) {
-        updateData.extracted_data = {
-          nome_paciente: extracted_data.nome_paciente?.toUpperCase() || "",
-          numero_atendimento: extracted_data.numero_atendimento || "",
-          convenio: extracted_data.convenio?.toUpperCase() || "",
-          hospital: extracted_data.hospital?.toUpperCase() || "",
-          data_atendimento: extracted_data.data_atendimento || ""
-        };
+        if (isNotaFiscal) {
+          updateData.extracted_data = {
+            emitente: extracted_data.emitente || "",
+            cnpjEmitente: extracted_data.cnpjEmitente || "",
+            valorTotal: parseBrazilianDecimal(extracted_data.valorTotal),
+            valorLiquido: parseBrazilianDecimal(extracted_data.valorLiquido),
+            numeroNota: extracted_data.numeroNota || "",
+            dataEmissao: extracted_data.dataEmissao || ""
+          };
+          if (extracted_data.emitente) {
+            updateData.hospital = extracted_data.emitente;
+          }
+        } else {
+          updateData.extracted_data = {
+            nome_paciente: extracted_data.nome_paciente?.toUpperCase() || "",
+            numero_atendimento: extracted_data.numero_atendimento || "",
+            convenio: extracted_data.convenio?.toUpperCase() || "",
+            hospital: extracted_data.hospital?.toUpperCase() || "",
+            data_atendimento: extracted_data.data_atendimento || ""
+          };
+          if (extracted_data.hospital) {
+            updateData.hospital = extracted_data.hospital;
+          }
+        }
       }
 
       await docRef.update(updateData);
-      console.log(`[Learned DB] Verified example ${id} successfully`);
+      console.log(`[Learned DB] Verified example ${id} (${docType}) successfully`);
 
       return res.status(200).json({ success: true, message: "Exemplo verificado com sucesso." });
     } catch (err: any) {
@@ -1818,26 +1858,32 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                   type: Type.STRING, 
                   description: "O número identificador único da Nota Fiscal (ex: encontre o número destacado como '991', 'Número da Nota', 'Nota n°'). Deixe em branco se for etiqueta." 
                 },
+                numeroNota_confidence: { type: Type.NUMBER },
                 dataEmissao: { 
                   type: Type.STRING, 
                   description: "A data de emissão exata da Nota Fiscal no formato DD/MM/AAAA ou AAAA-MM-DD. Deve ser extraída de campos como 'Data e Hora da emissão' ou similar (ex: se no texto diz 'Data e Hora da emissão: 15/05/2026 12:24:08', extraia exatamente '15/05/2026'). Deixe em branco se for etiqueta." 
                 },
+                dataEmissao_confidence: { type: Type.NUMBER },
                 emitente: { 
                   type: Type.STRING, 
                   description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais (NFS-e/Prefeitura/Nibo), preencha este campo OBRIGATORIAMENTE com a razão social ou nome do TOMADOR DE SERVIÇOS (o hospital ou contratante listado na nota como tomador/cliente, ex: 'ASSOCIACAO HOSPITALAR FILHAS DE NOSSA SENHORA DO MONTE CALVARIO'). NUNCA preencha com o emitente/prestador original de serviços médicos. Deixe em branco se for etiqueta." 
                 },
+                emitente_confidence: { type: Type.NUMBER },
                 cnpjEmitente: { 
                   type: Type.STRING, 
                   description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais, preencha este campo OBRIGATORIAMENTE com o CNPJ do TOMADOR DE SERVIÇOS (o hospital ou contratante listado como tomador/cliente). NUNCA preencha com o CNPJ do prestador. Deixe em branco se for etiqueta." 
                 },
+                cnpjEmitente_confidence: { type: Type.NUMBER },
                 valorTotal: { 
                   type: Type.STRING, 
                   description: "O valor total bruto ou dos serviços faturados na Nota Fiscal (ex: 'R$ 1.500,00' ou '1500,00'). Deixe em branco ou zerado se for etiqueta." 
                 },
+                valorTotal_confidence: { type: Type.NUMBER },
                 valorLiquido: {
                   type: Type.NUMBER,
                   description: "Valor líquido da nota fiscal. Procure EXCLUSIVAMENTE pelos campos 'Valor Líquido da Nota' ou 'Líquido a Receber' impressos no documento. NÃO calcule nem subtraia impostos — se não encontrar o campo explícito de forma literal, repita o valorTotal."
                 },
+                valorLiquido_confidence: { type: Type.NUMBER },
                 itens: {
                   type: Type.ARRAY,
                   description: "Array dos itens ou serviços de auditoria/consultoria médica faturados na nota.",
@@ -2464,26 +2510,32 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                   type: Type.STRING, 
                   description: "O número identificador único da Nota Fiscal (ex: encontre o número destacado como '991', 'Número da Nota', 'Nota n°'). Deixe em branco se for etiqueta." 
                 },
+                numeroNota_confidence: { type: Type.NUMBER },
                 dataEmissao: { 
                   type: Type.STRING, 
                   description: "A data de emissão exata da Nota Fiscal no formato DD/MM/AAAA ou AAAA-MM-DD. Deve ser extraída de campos como 'Data e Hora da emissão' ou similar (ex: se no texto diz 'Data e Hora da emissão: 15/05/2026 12:24:08', extraia exatamente '15/05/2026'). Deixe em branco se for etiqueta." 
                 },
+                dataEmissao_confidence: { type: Type.NUMBER },
                 emitente: { 
                   type: Type.STRING, 
                   description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais (NFS-e/Prefeitura/Nibo), preencha este campo OBRIGATORIAMENTE com a razão social ou nome do TOMADOR DE SERVIÇOS (o hospital ou contratante listado na nota como tomador/cliente, ex: 'ASSOCIACAO HOSPITALAR FILHAS DE NOSSA SENHORA DO MONTE CALVARIO'). NUNCA preencha com o emitente/prestador original de serviços médicos. Deixe em branco se for etiqueta." 
                 },
+                emitente_confidence: { type: Type.NUMBER },
                 cnpjEmitente: { 
                   type: Type.STRING, 
                   description: "ATENÇÃO OBRIGATÓRIA: Para Notas Fiscais, preencha este campo OBRIGATORIAMENTE com o CNPJ do TOMADOR DE SERVIÇOS (o hospital ou contratante listado como tomador/cliente). NUNCA preencha com o CNPJ do prestador. Deixe em branco se for etiqueta." 
                 },
+                cnpjEmitente_confidence: { type: Type.NUMBER },
                 valorTotal: { 
                   type: Type.STRING, 
                   description: "O valor total bruto ou dos serviços faturados na Nota Fiscal (ex: 'R$ 1.500,00' ou '1500,00'). Deixe em branco ou zerado se for etiqueta." 
                 },
+                valorTotal_confidence: { type: Type.NUMBER },
                 valorLiquido: {
                   type: Type.NUMBER,
                   description: "Valor líquido EXPLICITAMENTE escrito no documento na linha 'Valor Líquido: R$ X' (geralmente dentro da seção 'Discriminação do Serviço', não na tabela de cálculo de impostos no rodapé). Copie esse número exatamente como está escrito. NÃO calcule ou deduza este valor — apenas leia o que está escrito após 'Valor Líquido:'."
                 },
+                valorLiquido_confidence: { type: Type.NUMBER },
                 itens: {
                   type: Type.ARRAY,
                   description: "Array dos itens ou serviços de auditoria/consultoria médica faturados na nota.",

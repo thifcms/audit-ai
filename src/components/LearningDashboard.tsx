@@ -18,20 +18,31 @@ interface LearnedExample {
   id: string;
   hospital: string;
   image_hash: string;
+  documentType?: 'etiqueta_hospitalar' | 'nota_fiscal' | string;
   confidence: 'high' | 'low';
   verified_by_user: boolean;
   created_at: string;
   extracted_data: {
-    nome_paciente: string;
-    numero_atendimento: string;
-    convenio: string;
+    // Etiqueta fields:
+    nome_paciente?: string;
+    numero_atendimento?: string;
+    convenio?: string;
     data_atendimento?: string;
+    // Nota fiscal fields:
+    emitente?: string;
+    cnpjEmitente?: string;
+    valorTotal?: string;
+    valorLiquido?: string;
+    numeroNota?: string;
+    dataEmissao?: string;
   };
 }
 
 interface StatsData {
   total_examples: number;
   by_hospital: { [key: string]: number };
+  by_hospital_etiqueta?: { [key: string]: number };
+  by_hospital_nota_fiscal?: { [key: string]: number };
   gemini_calls_last_7d: number;
   local_cache_hits_last_7d: number;
 }
@@ -40,6 +51,8 @@ export default function LearningDashboard() {
   const [stats, setStats] = useState<StatsData>({
     total_examples: 0,
     by_hospital: {},
+    by_hospital_etiqueta: {},
+    by_hospital_nota_fiscal: {},
     gemini_calls_last_7d: 0,
     local_cache_hits_last_7d: 0
   });
@@ -47,13 +60,20 @@ export default function LearningDashboard() {
   const [examples, setExamples] = useState<LearnedExample[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'etiqueta' | 'nota_fiscal'>('etiqueta');
   
   // Correction Form state
   const [editForm, setEditForm] = useState({
     nome_paciente: '',
     numero_atendimento: '',
     convenio: '',
-    data_atendimento: ''
+    data_atendimento: '',
+    emitente: '',
+    cnpjEmitente: '',
+    valorTotal: '',
+    valorLiquido: '',
+    numeroNota: '',
+    dataEmissao: ''
   });
 
   const fetchData = async () => {
@@ -69,6 +89,8 @@ export default function LearningDashboard() {
           setStats({
             total_examples: statsJSON.total_examples || 0,
             by_hospital: statsJSON.by_hospital || {},
+            by_hospital_etiqueta: statsJSON.by_hospital_etiqueta || {},
+            by_hospital_nota_fiscal: statsJSON.by_hospital_nota_fiscal || {},
             gemini_calls_last_7d: statsJSON.gemini_calls_last_7d || 0,
             local_cache_hits_last_7d: statsJSON.local_cache_hits_last_7d || 0
           });
@@ -148,27 +170,46 @@ export default function LearningDashboard() {
 
   const startCorrection = (example: LearnedExample) => {
     setEditingId(example.id);
+    const ed = example.extracted_data || {};
     setEditForm({
-      nome_paciente: example.extracted_data.nome_paciente || '',
-      numero_atendimento: example.extracted_data.numero_atendimento || '',
-      convenio: example.extracted_data.convenio || '',
-      data_atendimento: example.extracted_data.data_atendimento || ''
+      nome_paciente: ed.nome_paciente || '',
+      numero_atendimento: ed.numero_atendimento || '',
+      convenio: ed.convenio || '',
+      data_atendimento: ed.data_atendimento || '',
+      emitente: ed.emitente || '',
+      cnpjEmitente: ed.cnpjEmitente || '',
+      valorTotal: ed.valorTotal || '',
+      valorLiquido: ed.valorLiquido || '',
+      numeroNota: ed.numeroNota || '',
+      dataEmissao: ed.dataEmissao || ''
     });
   };
 
   const submitCorrection = async (exampleId: string) => {
     try {
+      const example = examples.find(ex => ex.id === exampleId);
+      const isNotaFiscal = example?.documentType === 'nota_fiscal';
+      
+      const payloadData = isNotaFiscal ? {
+        emitente: editForm.emitente,
+        cnpjEmitente: editForm.cnpjEmitente,
+        valorTotal: editForm.valorTotal,
+        valorLiquido: editForm.valorLiquido,
+        numeroNota: editForm.numeroNota,
+        dataEmissao: editForm.dataEmissao
+      } : {
+        nome_paciente: editForm.nome_paciente,
+        numero_atendimento: editForm.numero_atendimento,
+        convenio: editForm.convenio,
+        data_atendimento: editForm.data_atendimento
+      };
+
       const res = await fetch(`/api/learning/examples/${exampleId}/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'verify',
-          extracted_data: {
-            nome_paciente: editForm.nome_paciente,
-            numero_atendimento: editForm.numero_atendimento,
-            convenio: editForm.convenio,
-            data_atendimento: editForm.data_atendimento
-          }
+          extracted_data: payloadData
         })
       });
       const resJSON = await res.json();
@@ -198,8 +239,12 @@ export default function LearningDashboard() {
   const localCacheEfficiency = totalCalls > 0 ? (stats.local_cache_hits_last_7d / totalCalls) * 100 : 0;
 
   // Count verified examples per hospital to compute progress towards Local Template OCR (Target = 10 verified)
-  const computeHospitalProgress = (hospName: string) => {
-    const verifieds = examples.filter(ex => ex.hospital === hospName && ex.verified_by_user).length;
+  const computeHospitalProgress = (hospName: string, docType: 'etiqueta' | 'nota_fiscal') => {
+    const verifieds = examples.filter(ex => {
+      const isNF = ex.documentType === 'nota_fiscal';
+      const matchesDocType = docType === 'nota_fiscal' ? isNF : !isNF;
+      return ex.hospital === hospName && ex.verified_by_user && matchesDocType;
+    }).length;
     return {
       count: verifieds,
       percentage: Math.min((verifieds / 10) * 100, 100)
@@ -256,35 +301,65 @@ export default function LearningDashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Hospital Learning Progress to Gemini-Free */}
+        {/* Hospital/Issuer Learning Progress */}
         <div className="bg-[#0b1120] border border-slate-900 p-6 rounded-xl" id="hospital-recognition-panel">
-          <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-            <Target className="w-4 h-4 text-emerald-400" /> Metas de Automação por Hospital
-          </h3>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Target className="w-4 h-4 text-emerald-400" /> Metas de Automação / Aprendizado
+            </h3>
+            <div className="flex bg-[#060910] border border-slate-950 p-0.5 rounded-lg">
+              <button
+                onClick={() => setActiveTab('etiqueta')}
+                className={`px-3 py-1 text-[10px] rounded-md font-medium transition-all ${activeTab === 'etiqueta' ? 'bg-cyan-950 text-cyan-400 border border-cyan-800/30' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                Etiquetas ({Object.keys(stats.by_hospital_etiqueta || stats.by_hospital || {}).length})
+              </button>
+              <button
+                onClick={() => setActiveTab('nota_fiscal')}
+                className={`px-3 py-1 text-[10px] rounded-md font-medium transition-all ${activeTab === 'nota_fiscal' ? 'bg-cyan-950 text-cyan-400 border border-cyan-800/30' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                Notas Fiscais ({Object.keys(stats.by_hospital_nota_fiscal || {}).length})
+              </button>
+            </div>
+          </div>
           <p className="text-xs text-slate-400 mb-4">
-            Alcançar **10 exemplos validados pelo usuário** permite que a Audit IA use **OCR Local sem cota Gemini** para este hospital.
+            {activeTab === 'etiqueta' 
+              ? "Alcançar 10 exemplos validados pelo usuário permite que a Audit IA use OCR Local sem cota Gemini para este hospital."
+              : "Registros e contagem de notas fiscais aprendidas na Massa Neural por emitente/tomador."}
           </p>
           
           <div className="space-y-4 max-h-72 overflow-y-auto pr-2">
-            {Object.keys(stats.by_hospital).length === 0 ? (
-              <p className="text-xs text-slate-500 italic p-4 text-center">Nenhum hospital registrado ainda.</p>
-            ) : (
-              Object.entries(stats.by_hospital).map(([hospital, totalLeituras]) => {
-                const prog = computeHospitalProgress(hospital);
-                const isCertified = prog.count >= 10;
+            {(() => {
+              const currentList = activeTab === 'etiqueta' 
+                ? (stats.by_hospital_etiqueta || stats.by_hospital || {}) 
+                : (stats.by_hospital_nota_fiscal || {});
+                
+              if (Object.keys(currentList).length === 0) {
+                return (
+                  <p className="text-xs text-slate-500 italic p-4 text-center">
+                    {activeTab === 'etiqueta' ? "Nenhuma etiqueta registrada ainda." : "Nenhuma nota fiscal registrada ainda."}
+                  </p>
+                );
+              }
+              
+              return Object.entries(currentList).map(([hospital, totalLeituras]) => {
+                const prog = computeHospitalProgress(hospital, activeTab);
+                const isCertified = activeTab === 'etiqueta' && prog.count >= 10;
                 return (
                   <div key={hospital} className="p-3 bg-[#060910] border border-slate-950 rounded-lg space-y-2">
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-slate-200">{hospital}</span>
-                        {isCertified ? (
-                          <span className="text-[8px] bg-emerald-950/80 border border-emerald-800/40 text-emerald-400 px-1.5 py-0.5 rounded font-black uppercase">
-                            Liberado (100% Local)
-                          </span>
-                        ) : (
-                          <span className="text-[8px] bg-amber-950/80 border border-amber-800/40 text-amber-500 px-1.5 py-0.5 rounded font-bold">
-                            Falta {10 - prog.count} confirmados
-                          </span>
+                        {activeTab === 'etiqueta' && (
+                          isCertified ? (
+                            <span className="text-[8px] bg-emerald-950/80 border border-emerald-800/40 text-emerald-400 px-1.5 py-0.5 rounded font-black uppercase">
+                              Liberado (100% Local)
+                            </span>
+                          ) : (
+                            <span className="text-[8px] bg-amber-950/80 border border-amber-800/40 text-amber-500 px-1.5 py-0.5 rounded font-bold">
+                              Falta {10 - prog.count} confirmados
+                            </span>
+                          )
                         )}
                       </div>
                       <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/30 px-2 py-0.5 rounded-full border border-cyan-900/35">
@@ -292,22 +367,24 @@ export default function LearningDashboard() {
                       </span>
                     </div>
 
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px] text-slate-500">
-                        <span>Progresso de Certificação:</span>
-                        <span>{prog.count} / 10 exemplos</span>
+                    {activeTab === 'etiqueta' && (
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[10px] text-slate-500">
+                          <span>Progresso de Certificação:</span>
+                          <span>{prog.count} / 10 exemplos</span>
+                        </div>
+                        <div className="w-full bg-slate-950 rounded-full h-1.5">
+                          <div 
+                            className={`h-1.5 rounded-full transition-all duration-500 ${isCertified ? 'bg-emerald-500 shadow-lg shadow-emerald-500/20' : 'bg-cyan-500'}`} 
+                            style={{ width: `${prog.percentage}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="w-full bg-slate-950 rounded-full h-1.5">
-                        <div 
-                          className={`h-1.5 rounded-full transition-all duration-500 ${isCertified ? 'bg-emerald-500 shadow-lg shadow-emerald-500/20' : 'bg-cyan-500'}`} 
-                          style={{ width: `${prog.percentage}%` }}
-                        />
-                      </div>
-                    </div>
+                    )}
                   </div>
                 );
-              })
-            )}
+              });
+            })()}
           </div>
         </div>
 
@@ -383,6 +460,7 @@ export default function LearningDashboard() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-black text-white">{example.hospital}</span>
+                        <span className="text-[9px] text-slate-400 font-medium">({example.documentType === 'nota_fiscal' ? 'Nota Fiscal' : 'Etiqueta'})</span>
                         {example.verified_by_user ? (
                           <span className="text-[8px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800 px-1.5 py-0.5 rounded-md flex items-center gap-1">
                             ✓ Confirmado
@@ -451,63 +529,151 @@ export default function LearningDashboard() {
 
                   {/* Form toggle and layout display */}
                   {isEditing ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 border-t border-slate-900/60 pt-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-slate-400 font-bold uppercase">Nome do Paciente</label>
-                        <input 
-                          type="text" 
-                          value={editForm.nome_paciente}
-                          onChange={(e) => setEditForm({ ...editForm, nome_paciente: e.target.value })}
-                          className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white uppercase"
-                        />
+                    example.documentType === 'nota_fiscal' ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4 border-t border-slate-900/60 pt-4">
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-bold uppercase">Tomador / Emitente</label>
+                          <input 
+                            type="text" 
+                            value={editForm.emitente}
+                            onChange={(e) => setEditForm({ ...editForm, emitente: e.target.value })}
+                            className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white uppercase"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-bold uppercase">CNPJ Tomador</label>
+                          <input 
+                            type="text" 
+                            value={editForm.cnpjEmitente}
+                            onChange={(e) => setEditForm({ ...editForm, cnpjEmitente: e.target.value })}
+                            className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-bold uppercase">Número da Nota</label>
+                          <input 
+                            type="text" 
+                            value={editForm.numeroNota}
+                            onChange={(e) => setEditForm({ ...editForm, numeroNota: e.target.value })}
+                            className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-bold uppercase">Data de Emissão</label>
+                          <input 
+                            type="text" 
+                            value={editForm.dataEmissao}
+                            onChange={(e) => setEditForm({ ...editForm, dataEmissao: e.target.value })}
+                            className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-bold uppercase">Valor Total</label>
+                          <input 
+                            type="text" 
+                            value={editForm.valorTotal}
+                            onChange={(e) => setEditForm({ ...editForm, valorTotal: e.target.value })}
+                            className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-bold uppercase">Valor Líquido</label>
+                          <input 
+                            type="text" 
+                            value={editForm.valorLiquido}
+                            onChange={(e) => setEditForm({ ...editForm, valorLiquido: e.target.value })}
+                            className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-slate-400 font-bold uppercase">Atendimento</label>
-                        <input 
-                          type="text" 
-                          value={editForm.numero_atendimento}
-                          onChange={(e) => setEditForm({ ...editForm, numero_atendimento: e.target.value })}
-                          className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white"
-                        />
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 border-t border-slate-900/60 pt-4">
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-bold uppercase">Nome do Paciente</label>
+                          <input 
+                            type="text" 
+                            value={editForm.nome_paciente}
+                            onChange={(e) => setEditForm({ ...editForm, nome_paciente: e.target.value })}
+                            className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white uppercase"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-bold uppercase">Atendimento</label>
+                          <input 
+                            type="text" 
+                            value={editForm.numero_atendimento}
+                            onChange={(e) => setEditForm({ ...editForm, numero_atendimento: e.target.value })}
+                            className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-bold uppercase">Convênio</label>
+                          <input 
+                            type="text" 
+                            value={editForm.convenio}
+                            onChange={(e) => setEditForm({ ...editForm, convenio: e.target.value })}
+                            className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white uppercase"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-bold uppercase">Data de Atendimento</label>
+                          <input 
+                            type="text" 
+                            value={editForm.data_atendimento}
+                            onChange={(e) => setEditForm({ ...editForm, data_atendimento: e.target.value })}
+                            className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-slate-400 font-bold uppercase">Convênio</label>
-                        <input 
-                          type="text" 
-                          value={editForm.convenio}
-                          onChange={(e) => setEditForm({ ...editForm, convenio: e.target.value })}
-                          className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white uppercase"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-slate-400 font-bold uppercase">Data de Atendimento</label>
-                        <input 
-                          type="text" 
-                          value={editForm.data_atendimento}
-                          onChange={(e) => setEditForm({ ...editForm, data_atendimento: e.target.value })}
-                          className="w-full bg-[#060910] border border-slate-800 rounded px-2 py-1 text-xs text-white"
-                        />
-                      </div>
-                    </div>
+                    )
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-3 border-t border-slate-900/40 pt-3 text-xs">
-                      <div>
-                        <span className="text-slate-500 block text-[9px] uppercase font-bold">Paciente</span>
-                        <span className="font-semibold text-slate-350">{example.extracted_data.nome_paciente || '---'}</span>
+                    example.documentType === 'nota_fiscal' ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-3 border-t border-slate-900/40 pt-3 text-xs">
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold">Tomador / Emitente</span>
+                          <span className="font-semibold text-slate-350">{example.extracted_data.emitente || '---'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold">CNPJ Tomador</span>
+                          <span className="font-mono text-slate-350">{example.extracted_data.cnpjEmitente || '---'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold">Número da Nota</span>
+                          <span className="font-mono text-cyan-400">{example.extracted_data.numeroNota || '---'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold">Data de Emissão</span>
+                          <span className="text-slate-350">{example.extracted_data.dataEmissao || '---'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold">Valor Total</span>
+                          <span className="font-semibold text-emerald-400">{example.extracted_data.valorTotal || '---'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold">Valor Líquido</span>
+                          <span className="font-semibold text-emerald-400">{example.extracted_data.valorLiquido || '---'}</span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-slate-500 block text-[9px] uppercase font-bold">Atendimento / Reg</span>
-                        <span className="font-mono text-cyan-400">{example.extracted_data.numero_atendimento || '---'}</span>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-3 border-t border-slate-900/40 pt-3 text-xs">
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold">Paciente</span>
+                          <span className="font-semibold text-slate-350">{example.extracted_data.nome_paciente || '---'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold">Atendimento / Reg</span>
+                          <span className="font-mono text-cyan-400">{example.extracted_data.numero_atendimento || '---'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold">Convênio</span>
+                          <span className="font-semibold text-slate-350">{example.extracted_data.convenio || '---'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[9px] uppercase font-bold">Data Atendimento</span>
+                          <span className="text-slate-350">{example.extracted_data.data_atendimento || '---'}</span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-slate-500 block text-[9px] uppercase font-bold">Convênio</span>
-                        <span className="font-semibold text-slate-350">{example.extracted_data.convenio || '---'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block text-[9px] uppercase font-bold">Data Atendimento</span>
-                        <span className="text-slate-350">{example.extracted_data.data_atendimento || '---'}</span>
-                      </div>
-                    </div>
+                    )
                   )}
                 </div>
               );
