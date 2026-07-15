@@ -1,13 +1,14 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import cors from "cors";
 
 // Let esbuild handle these CJS modules by importing them directly
-import { serverTimestamp } from "firebase/firestore";
+// import { serverTimestamp } from "firebase/firestore";
 
 import { logMiddleware } from "./functions/src/middleware/logger.js";
 import { authMiddleware } from "./functions/src/middleware/auth.js";
@@ -23,7 +24,7 @@ import reconcileRoute from "./functions/src/routes/reconcile.js";
 import externalRoute from "./functions/src/routes/external.js";
 
 import dbUtils from "./functions/src/utils/db.js";
-const { getDB } = dbUtils;
+const { getDB, serverTimestamp: dbServerTimestamp } = dbUtils;
 import pdfUtils from "./functions/src/parsers/pdf.js";
 const { extractSoulmvTable } = pdfUtils;
 
@@ -33,8 +34,6 @@ const MOCK_MODE = process.env.MOCK_MODE === 'true';
 
 // --- Init Firebase ---
 // Using modular SDK now inside db.js so no compat app init needed here.
-
-import crypto from "crypto";
 
 // --- Learning Incremental Helpers ---
 function withTimeout<T>(promise: Promise<T>, ms: number, fallbackValue: T): Promise<T> {
@@ -211,6 +210,7 @@ async function getFewShotPrompt(hospital: string): Promise<string> {
     const verifiedSnap = await withTimeout(
       db.collection("learned_examples")
         .where("verified_by_user", "==", true)
+        .where("corrected_by_user", "==", false)
         .limit(10)
         .get(),
       1500, // 1.5 seconds budget
@@ -228,6 +228,7 @@ async function getFewShotPrompt(hospital: string): Promise<string> {
       const highConfSnap = await withTimeout(
         db.collection("learned_examples")
           .where("confidence", "==", "high")
+          .where("corrected_by_user", "==", false)
           .limit(15)
           .get(),
         1500, // 1.5 seconds budget
@@ -340,7 +341,7 @@ async function saveLearnedExample(
       }
     }
 
-    const shouldAutoVerify = criticalsComplete && allConfidencesHigh && foundAnyConfidence;
+    const shouldAutoVerify = criticalsComplete;
     const verified_by_user = shouldAutoVerify ? true : false;
 
     const docId = db.collection("learned_examples").doc().id;
@@ -361,7 +362,7 @@ async function saveLearnedExample(
       corrected_by_user: false,
       correction_checked_at: null,
       verified_by_user,
-      created_at: serverTimestamp()
+      created_at: dbServerTimestamp()
     });
 
     console.log(`[Learned DB] Automatically saved learned example for ${hospital} with confidence ${confidence}. Auto-promotion eligible: ${auto_confidence_ok}. Auto-verified: ${verified_by_user}`);
@@ -409,7 +410,7 @@ async function promoteAutoVerifiedExamples() {
         batch.update(doc.ref, {
           verified_by_user: true,
           promoted_automatically: true,
-          promoted_at: serverTimestamp()
+          promoted_at: dbServerTimestamp()
         });
         promotedCount++;
       }
@@ -1122,8 +1123,10 @@ async function startServer() {
       
       examplesSnap.forEach(doc => {
         const d = doc.data();
-        const hosp = d.hospital || "Outro";
-        by_hospital[hosp] = (by_hospital[hosp] || 0) + 1;
+        if (d.verified_by_user === true && d.corrected_by_user === false) {
+          const hosp = d.hospital || "Outro";
+          by_hospital[hosp] = (by_hospital[hosp] || 0) + 1;
+        }
       });
 
       // Get last 7 days logs
@@ -1273,7 +1276,7 @@ async function startServer() {
       const docId = snaps.docs[0].id;
       await db.collection("learned_examples").doc(docId).update({
         corrected_by_user: true,
-        correction_checked_at: serverTimestamp()
+        correction_checked_at: dbServerTimestamp()
       });
 
       console.log(`[Learned DB] Example with image_hash ${image_hash} (doc: ${docId}) marked as corrected_by_user=true.`);
@@ -1410,6 +1413,7 @@ async function startServer() {
           db.collection("learned_examples")
             .where("hospital", "==", hospitalName)
             .where("verified_by_user", "==", true)
+            .where("corrected_by_user", "==", false)
             .get(),
           1500, // 1.5 seconds budget
           { size: 0 } as any
@@ -2026,6 +2030,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
           db.collection("learned_examples")
             .where("hospital", "==", hospitalName)
             .where("verified_by_user", "==", true)
+            .where("corrected_by_user", "==", false)
             .get(),
           1500, // 1.5 seconds budget
           { size: 0 } as any

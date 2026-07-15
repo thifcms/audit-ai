@@ -104,4 +104,4 @@ function getDB() {
   return dbProxy;
 }
 
-module.exports = { getDB };
+module.exports = { getDB, serverTimestamp };
