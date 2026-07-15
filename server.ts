@@ -66,29 +66,40 @@ function getImageHash(base64Data: string): string {
 }
 
 async function parsePdfText(fileBuffer: Buffer): Promise<string> {
+  const tStart = performance.now();
+  console.log(`[parsePdfText TIMING] [${new Date().toISOString()}] Starting parsePdfText function...`);
   try {
+    const tImportStart = performance.now();
     const pdfParseModule = await import("pdf-parse") as any;
+    const tImportEnd = performance.now();
+    console.log(`[parsePdfText TIMING] [${new Date().toISOString()}] Import of pdf-parse completed in ${(tImportEnd - tImportStart).toFixed(2)}ms`);
+    
+    let text = "";
     if (pdfParseModule.PDFParse) {
       const uint8 = new Uint8Array(fileBuffer);
       const p = new pdfParseModule.PDFParse(uint8);
       const res = await p.getText();
-      return res.text || "";
+      text = res.text || "";
+    } else {
+      const pdfParse = pdfParseModule.default || pdfParseModule;
+      if (typeof pdfParse === "function") {
+        const res = await pdfParse(fileBuffer);
+        text = res.text || "";
+      } else if (pdfParse && typeof pdfParse.PDFParse === "function") {
+        const uint8 = new Uint8Array(fileBuffer);
+        const p = new pdfParse.PDFParse(uint8);
+        const res = await p.getText();
+        text = res.text || "";
+      } else {
+        console.warn("[parsePdfText] Nenhum método de parse de PDF válido encontrado.");
+      }
     }
-    const pdfParse = pdfParseModule.default || pdfParseModule;
-    if (typeof pdfParse === "function") {
-      const res = await pdfParse(fileBuffer);
-      return res.text || "";
-    }
-    if (pdfParse && typeof pdfParse.PDFParse === "function") {
-      const uint8 = new Uint8Array(fileBuffer);
-      const p = new pdfParse.PDFParse(uint8);
-      const res = await p.getText();
-      return res.text || "";
-    }
-    console.warn("[parsePdfText] Nenhum método de parse de PDF válido encontrado.");
-    return "";
+    const tEnd = performance.now();
+    console.log(`[parsePdfText TIMING] [${new Date().toISOString()}] Parsing logic completed in ${(tEnd - tImportEnd).toFixed(2)}ms. Total parsePdfText time: ${(tEnd - tStart).toFixed(2)}ms`);
+    return text;
   } catch (err: any) {
-    console.error("[parsePdfText] Erro ao extrair texto do PDF:", err.message);
+    const tEnd = performance.now();
+    console.error(`[parsePdfText TIMING] [${new Date().toISOString()}] Erro ao extrair texto do PDF após ${(tEnd - tStart).toFixed(2)}ms:`, err.message);
     return "";
   }
 }
@@ -2041,7 +2052,11 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
         console.log("[Direct Extraction] Recebida requisição com prompt customizado. Tentando padrão local antes do Gemini.");
         
         try {
+          const tStart = performance.now();
+          console.log(`[TIMING] [${new Date().toISOString()}] Starting parsePdfText inside prompt-based extraction in /public/extract...`);
           const pdfText = await parsePdfText(fileBuffer);
+          const tEnd = performance.now();
+          console.log(`[TIMING] [${new Date().toISOString()}] Finished parsePdfText in /public/extract. Time taken: ${(tEnd - tStart).toFixed(2)}ms`);
           
           // Tenta padrão local ORTTRAM se especificado no prompt
           const isOrttramPrompt = prompt.toLowerCase().includes("medico cadastrado") || prompt.toLowerCase().includes("médico cadastrado");
@@ -2178,7 +2193,11 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       try {
         if (mimeType === "application/pdf" || filename?.toLowerCase().endsWith(".pdf")) {
           console.log("[Direct Extraction Back] Extraindo texto do PDF preliminar...");
+          const tStart = performance.now();
+          console.log(`[TIMING] [${new Date().toISOString()}] Starting parsePdfText (preliminary OCR block) inside /public/extract...`);
           extractedText = await parsePdfText(fileBuffer);
+          const tEnd = performance.now();
+          console.log(`[TIMING] [${new Date().toISOString()}] Finished parsePdfText (preliminary OCR block) in /public/extract. Time taken: ${(tEnd - tStart).toFixed(2)}ms`);
         } else {
           console.log("[Direct Extraction Back] Convertendo imagem e extraindo texto com Tesseract OCR preliminar...");
           const TesseractModule = await import("tesseract.js") as any;
