@@ -118,6 +118,159 @@ function detectHospitalName(text: string): string {
   return "Outro";
 }
 
+function extractOrttramTable(pdfText: string, prompt: string): any {
+  if (!pdfText || !prompt) return null;
+  
+  let cadastradoName = "";
+  const matchDoc = prompt.match(/Nome do médico cadastrado:\s*([^\n\r\\]+)/i);
+  if (matchDoc) {
+    cadastradoName = matchDoc[1].trim();
+  }
+  
+  if (!cadastradoName) {
+    console.log("[ORTTRAM Parser] Nome do médico cadastrado não encontrado no prompt.");
+    return null;
+  }
+  
+  const normalizeName = (name: string): string => {
+    if (!name) return "";
+    return name
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\b(DR\.|DRA\.|DR|DRA)\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase();
+  };
+  
+  const normalizedCadastrado = normalizeName(cadastradoName);
+  if (!normalizedCadastrado) {
+    console.log("[ORTTRAM Parser] Nome do médico cadastrado normalizado ficou vazio.");
+    return null;
+  }
+  
+  const lines = pdfText.split("\n");
+  const parsedRows: any[] = [];
+  
+  const startRegex = /^(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/;
+  const endRegex = /\s+(\d{2}\/\d{2}\/\d{2,4})\s+(\d+)\s+(\d+)\s+R\$\s*([\d.,]+)\s+(\d+)\s+R\$\s*([\d.,]+)\s*$/i;
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    const startMatch = trimmedLine.match(startRegex);
+    if (!startMatch) continue;
+    
+    const remessa = startMatch[1];
+    const conta = startMatch[2];
+    const atendimento = startMatch[3];
+    const restOfLine = startMatch[4];
+    
+    const normalizedRest = normalizeName(restOfLine);
+    const docIdx = normalizedRest.indexOf(normalizedCadastrado);
+    
+    if (docIdx === -1) continue;
+    
+    const beforeDoc = normalizedRest.substring(0, docIdx);
+    const paciente = beforeDoc.trim();
+    
+    const suffixStart = docIdx + normalizedCadastrado.length;
+    let suffix = restOfLine.substring(suffixStart);
+    
+    // --- LIMPEZA DE ESPAÇOS POR KERNING NO SUFIXO ---
+    const rsIndices: number[] = [];
+    let idx = suffix.toUpperCase().indexOf("R$");
+    while (idx !== -1) {
+      rsIndices.push(idx);
+      idx = suffix.toUpperCase().indexOf("R$", idx + 2);
+    }
+    
+    if (rsIndices.length >= 2) {
+      const secondLastRsIdx = rsIndices[rsIndices.length - 2];
+      const lastRsIdx = rsIndices[rsIndices.length - 1];
+      
+      const partBeforeFirstRs = suffix.substring(0, secondLastRsIdx);
+      const partBetweenRs = suffix.substring(secondLastRsIdx, lastRsIdx);
+      const partAfterLastRs = suffix.substring(lastRsIdx);
+      
+      const cleanPartAfterLastRs = partAfterLastRs.replace(/\s+/g, "");
+      
+      const trimmedBetween = partBetweenRs.trim();
+      const lastSpaceIdx = trimmedBetween.lastIndexOf(" ");
+      if (lastSpaceIdx !== -1) {
+        const percentage = trimmedBetween.substring(lastSpaceIdx + 1);
+        const valuePart = trimmedBetween.substring(0, lastSpaceIdx);
+        const cleanValuePart = valuePart.replace(/\s+/g, "");
+        
+        const cleanPartBetween = cleanValuePart + " " + percentage;
+        suffix = partBeforeFirstRs + cleanPartBetween + " " + cleanPartAfterLastRs;
+      }
+    }
+    // ------------------------------------------------
+    
+    const endMatch = suffix.match(endRegex);
+    if (!endMatch) continue;
+    
+    const data = endMatch[1];
+    const quant = endMatch[2];
+    const qtCh = endMatch[3];
+    const vlRepasseStr = endMatch[4];
+    const porcentagem = endMatch[5];
+    const vlContaStr = endMatch[6];
+    
+    const endMatchIdx = suffix.search(endRegex);
+    const textBetween = endMatchIdx !== -1 ? suffix.substring(0, endMatchIdx).trim().toUpperCase() : "";
+    const isClinico = textBetween.includes("CLINICO") || textBetween.includes("CLÍNICO");
+    const atividade = isClinico ? "CLINICO" : "CIRURGICO";
+    
+    const valorStr = vlRepasseStr.replace(/\./g, "").replace(",", ".");
+    const valorNum = parseFloat(valorStr) || 0;
+    
+    parsedRows.push({
+      nome_paciente: paciente,
+      numero_atendimento: atendimento,
+      valor: valorNum,
+      data_atendimento: data,
+      atividade: atividade
+    });
+  }
+  
+  if (parsedRows.length === 0) return null;
+  
+  const promptUpper = prompt.toUpperCase();
+  const hasClinicalTerm = promptUpper.includes("CLINICO");
+  const hasSurgicalTerm = promptUpper.includes("CIRURGICO") || promptUpper.includes("CIRURGIAO") || promptUpper.includes("AUXILIAR") || promptUpper.includes("DIFERENTE");
+  
+  let filteredRows = parsedRows;
+  if (hasSurgicalTerm) {
+    filteredRows = parsedRows.filter(r => r.atividade !== "CLINICO");
+  } else if (hasClinicalTerm) {
+    filteredRows = parsedRows.filter(r => r.atividade === "CLINICO");
+  }
+  
+  const groupedMap = new Map<string, any>();
+  for (const row of filteredRows) {
+    const key = row.numero_atendimento;
+    if (groupedMap.has(key)) {
+      const existing = groupedMap.get(key);
+      existing.valor += row.valor;
+    } else {
+      groupedMap.set(key, {
+        nome_paciente: row.nome_paciente,
+        numero_atendimento: row.numero_atendimento,
+        valor: row.valor,
+        data_atendimento: row.data_atendimento
+      });
+    }
+  }
+  
+  const resultados = Array.from(groupedMap.values());
+  for (const res of resultados) {
+    res.valor = Math.round(res.valor * 100) / 100;
+  }
+  
+  return { resultados };
+}
+
 function extractWithLocalRegex(rawText: string, hospital: string): any {
   if (!rawText) return null;
   const lines = rawText.split("\n");
@@ -1889,6 +2042,24 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
         
         try {
           const pdfText = await parsePdfText(fileBuffer);
+          
+          // Tenta padrão local ORTTRAM se especificado no prompt
+          const isOrttramPrompt = prompt.toLowerCase().includes("medico cadastrado") || prompt.toLowerCase().includes("médico cadastrado");
+          if (isOrttramPrompt) {
+            const orttramResult = extractOrttramTable(pdfText, prompt);
+            if (orttramResult && orttramResult.resultados && orttramResult.resultados.length > 0) {
+              console.log(`[Direct Extraction] Formato ORTTRAM identificado localmente (${orttramResult.resultados.length} atendimentos únicos). Pulando Gemini.`);
+              return res.status(200).json({
+                success: true,
+                usedModel: "N/A",
+                usedProvider: "local_pattern",
+                data: {
+                  resultados: orttramResult.resultados
+                }
+              });
+            }
+          }
+
           const localTable = extractSoulmvTable(pdfText);
           
           if (localTable && localTable.rows && localTable.rows.length > 0) {
