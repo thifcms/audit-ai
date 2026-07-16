@@ -2927,8 +2927,19 @@ Diretrizes:
     console.log("Iniciando servidor de produção com arquivos estáticos.");
   }
 
+  async function warmUpPdfParser() {
+    const tStart = performance.now();
+    try {
+      await import("pdf-parse");
+      console.log(`[WARMUP] pdf-parse pré-carregado em ${(performance.now() - tStart).toFixed(2)}ms`);
+    } catch (err) {
+      console.error("[WARMUP] Falha ao pré-carregar pdf-parse:", err);
+    }
+  }
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
+    warmUpPdfParser();
   });
 
   // Self-ping to prevent sleep on Render (every 10 minutes)
