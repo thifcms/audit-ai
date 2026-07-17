@@ -1562,6 +1562,98 @@ async function startServer() {
   apiRouter.use("/reconcile",  getRouter(reconcileRoute, "reconcile"));
   apiRouter.use("/external",   getRouter(externalRoute, "external"));
 
+  apiRouter.get("/learning/format-candidates", async (req, res) => {
+    try {
+      const limitVal = parseInt(req.query.limit as string) || 20;
+      const offsetVal = parseInt(req.query.offset as string) || 0;
+
+      const queryProxy = getDB().collection("format_candidates");
+      const snap = await queryProxy.orderBy("createdAt", "desc").get();
+      
+      const total = snap.docs.length;
+      const candidates = snap.docs.slice(offsetVal, offsetVal + limitVal).map(d => d.data());
+
+      return res.status(200).json({
+        success: true,
+        total,
+        limit: limitVal,
+        offset: offsetVal,
+        candidates
+      });
+    } catch (err: any) {
+      console.error("[GET /learning/format-candidates] Error:", err);
+      return res.status(500).json({ error: "Erro ao buscar candidatos a formatos", details: err.message });
+    }
+  });
+
+  apiRouter.get("/learning/format-candidates/pending", async (req, res) => {
+    try {
+      const snap = await getDB().collection("format_candidates").get();
+      const allDocs = snap.docs.map(d => d.data());
+      
+      const pendingCandidates = allDocs
+        .filter(d => d.status === "pending_review")
+        .sort((a, b) => {
+          const tA = (a.createdAt && a.createdAt.seconds) ? a.createdAt.seconds : 0;
+          const tB = (b.createdAt && b.createdAt.seconds) ? b.createdAt.seconds : 0;
+          return tB - tA;
+        })
+        .slice(0, 5)
+        .map(d => ({
+          id: d.id,
+          resultadosSample: d.resultadosSample || [],
+          resultCount: d.resultCount || 0,
+          createdAt: d.createdAt
+        }));
+
+      return res.status(200).json({
+        success: true,
+        count: pendingCandidates.length,
+        candidates: pendingCandidates
+      });
+    } catch (err: any) {
+      console.error("[GET /learning/format-candidates/pending] Error:", err);
+      return res.status(500).json({ error: "Erro ao buscar candidatos pendentes", details: err.message });
+    }
+  });
+
+  apiRouter.post("/learning/format-candidates/:id/review", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { approved, reviewedBy } = req.body;
+
+      if (approved === undefined) {
+        return res.status(400).json({ error: "O campo approved é obrigatório." });
+      }
+
+      const docRef = getDB().collection("format_candidates").doc(id);
+      const docSnap = await docRef.get();
+
+      if (!docSnap.exists) {
+        return res.status(404).json({ error: "Candidato não encontrado." });
+      }
+
+      const updateData: any = {
+        status: approved ? "approved" : "rejected",
+        reviewedAt: dbServerTimestamp()
+      };
+
+      if (reviewedBy !== undefined) {
+        updateData.reviewedBy = reviewedBy;
+      }
+
+      await docRef.update(updateData);
+
+      return res.status(200).json({
+        success: true,
+        message: `Candidato de formato avaliado como: ${updateData.status}`
+      });
+    } catch (err: any) {
+      console.error("[POST /learning/format-candidates/:id/review] Error:", err);
+      return res.status(500).json({ error: "Erro ao atualizar revisão do candidato", details: err.message });
+    }
+  });
+
   
   // Gemini Extraction Route (Protected now)
   apiRouter.post("/gemini/extract", async (req, res) => {
@@ -2127,13 +2219,14 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       let errorMsg = "";
       let quotaExhausted = false;
 
+      let pdfText = "";
       if (prompt) {
         console.log("[Direct Extraction] Recebida requisição com prompt customizado. Tentando padrão local antes do Gemini.");
         
         try {
           const tStart = performance.now();
           console.log(`[TIMING] [${new Date().toISOString()}] Starting parsePdfText inside prompt-based extraction in /public/extract...`);
-          const pdfText = await parsePdfText(fileBuffer);
+          pdfText = await parsePdfText(fileBuffer);
           const tEnd = performance.now();
           console.log(`[TIMING] [${new Date().toISOString()}] Finished parsePdfText in /public/extract. Time taken: ${(tEnd - tStart).toFixed(2)}ms`);
           
@@ -2291,6 +2384,62 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
         }
 
         if (success) {
+          // Capturar candidatos a novos formatos de relatório automaticamente
+          let resultCount = 0;
+          let hasBreakdown = false;
+          let resultadosSample: any[] = [];
+          
+          if (resultData) {
+            let resultsArray: any[] | null = null;
+            if (Array.isArray(resultData)) {
+              resultsArray = resultData;
+            } else if (resultData.resultados && Array.isArray(resultData.resultados)) {
+              resultsArray = resultData.resultados;
+            } else if (resultData.items && Array.isArray(resultData.items)) {
+              resultsArray = resultData.items;
+            } else if (resultData.pacientes && Array.isArray(resultData.pacientes)) {
+              resultsArray = resultData.pacientes;
+            }
+            
+            if (resultsArray) {
+              resultCount = resultsArray.length;
+              hasBreakdown = resultsArray.some(r => r && r.breakdown && (typeof r.breakdown === 'object' && Object.keys(r.breakdown).length > 0));
+              
+              resultadosSample = resultsArray.slice(0, 5).map(item => {
+                if (!item) return null;
+                return {
+                  nome_paciente: item.nome_paciente || item.nome || item.paciente || "",
+                  numero_atendimento: item.numero_atendimento || item.atendimento || item.registro || "",
+                  valor: item.valor !== undefined ? item.valor : (item.valorTotal !== undefined ? item.valorTotal : (item.pago !== undefined ? item.pago : null))
+                };
+              }).filter(Boolean);
+            }
+          }
+
+          if (resultCount >= 1) {
+            try {
+              const candidateId = crypto.randomUUID();
+              const promptLines = (prompt || "").split(/\r?\n/);
+              const promptUsedSnippet = promptLines.slice(0, 2).join("\n");
+              const pdfTextSample = (pdfText || "").substring(0, 1500);
+
+              await getDB().collection("format_candidates").doc(candidateId).set({
+                id: candidateId,
+                pdfTextSample,
+                resultCount,
+                hasBreakdown,
+                resultadosSample,
+                status: "pending_review",
+                promptUsedSnippet,
+                usedModel,
+                createdAt: dbServerTimestamp()
+              });
+              console.log(`[Format Candidate] Candidato salvo com sucesso em format_candidates! ID: ${candidateId}`);
+            } catch (dbErr) {
+              console.error("[Format Candidate] Erro ao salvar candidato em format_candidates:", dbErr);
+            }
+          }
+
           return res.status(200).json({
             success: true,
             usedModel,
