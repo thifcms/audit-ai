@@ -231,7 +231,23 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
     const endMatchIdx = suffix.search(endRegex);
     const textBetween = endMatchIdx !== -1 ? suffix.substring(0, endMatchIdx).trim().toUpperCase() : "";
     const isClinico = textBetween.includes("CLINICO") || textBetween.includes("CLÍNICO");
-    const atividade = isClinico ? "CLINICO" : "CIRURGICO";
+    let atividade = "CIRURGICO";
+    if (isClinico) {
+      atividade = "CLINICO";
+    } else {
+      const normalizedBetween = textBetween.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (normalizedBetween.includes("CIRURGIAO")) {
+        atividade = "CIRURGIAO";
+      } else if (normalizedBetween.includes("PRIMEIRO AUXILIAR") || normalizedBetween.includes("1 AUXILIAR") || normalizedBetween.includes("1O AUXILIAR") || normalizedBetween.includes("1º AUXILIAR")) {
+        atividade = "PRIMEIRO AUXILIAR";
+      } else if (normalizedBetween.includes("SEGUNDO AUXILIAR") || normalizedBetween.includes("2 AUXILIAR") || normalizedBetween.includes("2O AUXILIAR") || normalizedBetween.includes("2º AUXILIAR")) {
+        atividade = "SEGUNDO AUXILIAR";
+      } else if (normalizedBetween.includes("INSTRUMENTADOR")) {
+        atividade = "INSTRUMENTADOR";
+      } else {
+        atividade = "CIRURGIAO"; // default fallback for surgical
+      }
+    }
     
     const valorStr = vlRepasseStr.replace(/\./g, "").replace(",", ".");
     const valorNum = parseFloat(valorStr) || 0;
@@ -261,22 +277,39 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
   const groupedMap = new Map<string, any>();
   for (const row of filteredRows) {
     const key = row.numero_atendimento;
+    const activityKey = (row.atividade || "").toUpperCase();
+    
     if (groupedMap.has(key)) {
       const existing = groupedMap.get(key);
       existing.valor += row.valor;
+      if (hasSurgicalTerm && activityKey) {
+        existing.breakdown[activityKey] = (existing.breakdown[activityKey] || 0) + row.valor;
+      }
     } else {
-      groupedMap.set(key, {
+      const entry: any = {
         nome_paciente: row.nome_paciente,
         numero_atendimento: row.numero_atendimento,
         valor: row.valor,
         data_atendimento: row.data_atendimento
-      });
+      };
+      if (hasSurgicalTerm) {
+        entry.breakdown = {};
+        if (activityKey) {
+          entry.breakdown[activityKey] = row.valor;
+        }
+      }
+      groupedMap.set(key, entry);
     }
   }
   
   const resultados = Array.from(groupedMap.values());
   for (const res of resultados) {
     res.valor = Math.round(res.valor * 100) / 100;
+    if (res.breakdown) {
+      for (const [k, v] of Object.entries(res.breakdown)) {
+        res.breakdown[k] = Math.round((v as number) * 100) / 100;
+      }
+    }
   }
   
   return { resultados };
@@ -2143,7 +2176,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               filteredRows = localTable.rows.filter(r => (r.Atividade || "").toUpperCase() === "CLINICO");
             }
 
-            // Map to unified schema: { resultados: [{ nome_paciente, numero_atendimento, valor, data_atendimento }] }
+            // Map to unified schema: { resultados: [{ nome_paciente, numero_atendimento, valor, data_atendimento, atividade }] }
             const mappedResultados = filteredRows.map(row => {
               // Convert "500,00" string to 500.00 number
               const valorStr = (row["Vl.Repasse"] || "0").replace(/\./g, "").replace(",", ".");
@@ -2153,7 +2186,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                 nome_paciente: row["Paciente"] || "",
                 numero_atendimento: row["Atendimento"] || "",
                 valor: valorNum,
-                data_atendimento: row["Data"] || ""
+                data_atendimento: row["Data"] || "",
+                atividade: row["Atividade"] || ""
               };
             });
 
@@ -2162,16 +2196,36 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               const groupedMap = new Map();
               for (const row of mappedResultados) {
                 const key = row.numero_atendimento;
+                const activityKey = (row.atividade || "").toUpperCase();
+                
                 if (groupedMap.has(key)) {
-                  groupedMap.get(key).valor += row.valor;
+                  const existing = groupedMap.get(key);
+                  existing.valor += row.valor;
+                  if (activityKey) {
+                    existing.breakdown[activityKey] = (existing.breakdown[activityKey] || 0) + row.valor;
+                  }
                 } else {
-                  groupedMap.set(key, { ...row });
+                  const breakdown = {};
+                  if (activityKey) {
+                    breakdown[activityKey] = row.valor;
+                  }
+                  groupedMap.set(key, { ...row, breakdown });
                 }
               }
-              resultadosFinais = Array.from(groupedMap.values()).map(r => ({
-                ...r,
-                valor: Math.round(r.valor * 100) / 100
-              }));
+              resultadosFinais = Array.from(groupedMap.values()).map(r => {
+                const cleanBreakdown = {};
+                if (r.breakdown) {
+                  for (const [k, v] of Object.entries(r.breakdown)) {
+                    cleanBreakdown[k] = Math.round((v as number) * 100) / 100;
+                  }
+                }
+                const { atividade, ...rest } = r;
+                return {
+                  ...rest,
+                  valor: Math.round(r.valor * 100) / 100,
+                  breakdown: cleanBreakdown
+                };
+              });
             }
 
             return res.status(200).json({
