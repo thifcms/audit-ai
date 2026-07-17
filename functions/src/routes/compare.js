@@ -1,6 +1,6 @@
 const express = require("express");
 const admin = require("firebase-admin");
-const { getDB } = require("../utils/db");
+const { getDB, serverTimestamp } = require("../utils/db");
 const { v4: uuidv4 }      = require("uuid");
 const { upload }          = require("../utils/upload");
 const { parseDocument }   = require("../parsers");
@@ -102,7 +102,7 @@ router.post("/", upload.fields([
       docTypeB:   analysisB.analysis.documentType,
       status:     overallStatus,
       divergences: (tableComparison?.summary.divergent || 0) + (fieldComparison.summary.divergent || 0),
-      createdAt:  admin.firestore.FieldValue.serverTimestamp()
+      createdAt:  serverTimestamp()
     };
     await getDB().collection("audits").doc(auditId).set(record);
 

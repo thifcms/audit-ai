@@ -1,6 +1,6 @@
 const express = require("express");
 const admin = require("firebase-admin");
-const { getDB } = require("../utils/db");
+const { getDB, serverTimestamp } = require("../utils/db");
 const { v4: uuidv4 }       = require("uuid");
 const { upload }           = require("../utils/upload");
 const { parseDocument }    = require("../parsers");
@@ -93,7 +93,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       calculations,
       customCount: customCalcs.length,
       status:      calcResults.summary.failed === 0 ? "OK" : "PARCIAL",
-      createdAt:   admin.firestore.FieldValue.serverTimestamp()
+      createdAt:   serverTimestamp()
     });
 
     return res.status(200).json({

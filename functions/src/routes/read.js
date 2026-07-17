@@ -1,6 +1,6 @@
 const express = require("express");
 const admin   = require("firebase-admin");
-const { getDB } = require("../utils/db");
+const { getDB, serverTimestamp } = require("../utils/db");
 const { v4: uuidv4 }        = require("uuid");
 const { upload }            = require("../utils/upload");
 const { saveToStorage }     = require("../utils/storage");
@@ -113,7 +113,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         status:     "OK",
         storageUrl: storageInfo.url || null,
         storagePath:storageInfo.filePath || null,
-        createdAt:  admin.firestore.FieldValue.serverTimestamp()
+        createdAt:  serverTimestamp()
       };
 
       await getDB().collection("audits").doc(auditId).set(record);

@@ -1,5 +1,5 @@
 const admin = require("firebase-admin");
-const { getDB } = require("../utils/db");
+const { getDB, serverTimestamp } = require("../utils/db");
 
 async function logMiddleware(req, res, next) {
   const start = Date.now();
@@ -12,7 +12,7 @@ async function logMiddleware(req, res, next) {
       status:    res.statusCode,
       duration,
       appId:     req.appContext?.appId || "unknown",
-      timestamp: admin.firestore.FieldValue.serverTimestamp()
+      timestamp: serverTimestamp()
     };
 
     // Salva log em background
