@@ -2157,12 +2157,29 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
               };
             });
 
+            let resultadosFinais = mappedResultados;
+            if (hasSurgicalTerm) {
+              const groupedMap = new Map();
+              for (const row of mappedResultados) {
+                const key = row.numero_atendimento;
+                if (groupedMap.has(key)) {
+                  groupedMap.get(key).valor += row.valor;
+                } else {
+                  groupedMap.set(key, { ...row });
+                }
+              }
+              resultadosFinais = Array.from(groupedMap.values()).map(r => ({
+                ...r,
+                valor: Math.round(r.valor * 100) / 100
+              }));
+            }
+
             return res.status(200).json({
               success: true,
               usedModel: "N/A",
               usedProvider: "local_pattern",
               data: {
-                resultados: mappedResultados
+                resultados: resultadosFinais
               }
             });
           }

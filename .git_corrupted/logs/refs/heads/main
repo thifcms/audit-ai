@@ -1,2 +1,0 @@
-0000000000000000000000000000000000000000 891e159fb454a06052cf19bff4a9eb815449403a root <root@localhost.(none)> 1781349887 +0000	clone: from https://github.com/thifcms/audit-ai.git
-891e159fb454a06052cf19bff4a9eb815449403a 85733f84733dd1f0bce87e4994e52fab72c23c82 thifcms <thifcms@gmail.com> 1781350309 +0000	commit: chore: configure dynamic MOCK_MODE check from process.env and fix tsconfig exclude
