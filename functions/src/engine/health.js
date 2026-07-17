@@ -132,7 +132,7 @@ function reconcilePatients(tablePatients, tableHospital, options = {}) {
       valorCobrado:   toNumber(getValue(h, hospitalFields.valorCobrado)),
       dataAtendimento:getValue(h, hospitalFields.dataAtendimento),
       observation:    "Consta no relatório do hospital mas não está na lista de pacientes",
-      hospitalRecord: h
+      hospitalRecord: h ? { ...h } : null
     }));
 
   // 6. Estatísticas
@@ -202,7 +202,7 @@ function processPatient(
       convenio:       patConv,
       procedimento:   patProc,
       observation:    "Paciente não encontrado no relatório do hospital",
-      patientRecord:  patient,
+      patientRecord:  patient ? { ...patient } : null,
       hospitalRecord: null
     };
   }
@@ -220,8 +220,8 @@ function processPatient(
       diferenca:      null,
       dataAtendimento:patDate,
       observation:    "⚠️ Atenção: este atendimento já foi vinculado a outro paciente na lista",
-      patientRecord:  patient,
-      hospitalRecord: hospRecord
+      patientRecord:  patient ? { ...patient } : null,
+      hospitalRecord: hospRecord ? { ...hospRecord } : null
     };
   }
 
@@ -249,8 +249,8 @@ function processPatient(
     convenio:       patConv  || getValue(hospRecord, hFields.convenio),
     procedimento:   patProc  || getValue(hospRecord, hFields.procedimento),
     observation:    financialStatus.observation,
-    patientRecord:  patient,
-    hospitalRecord: hospRecord
+    patientRecord:  patient ? { ...patient } : null,
+    hospitalRecord: hospRecord ? { ...hospRecord } : null
   };
 }
 
@@ -441,9 +441,16 @@ function getValue(row, field) {
 
 function toNumber(val) {
   if (val === null || val === undefined || val === "") return null;
-  const str = String(val).replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", ".");
-  const n   = parseFloat(str);
-  return isNaN(n) ? null : n;
+  if (typeof val === "number") return val;
+  const str = String(val).replace(/[R$\s]/g, "").trim();
+  if (str.includes(",")) {
+    const clean = str.replace(/\./g, "").replace(",", ".");
+    const n = parseFloat(clean);
+    return isNaN(n) ? null : n;
+  } else {
+    const n = parseFloat(str);
+    return isNaN(n) ? null : n;
+  }
 }
 
 // ── SUMÁRIO ──────────────────────────────────────────────────────────────────
