@@ -2,6 +2,54 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import LogoImage from '../assets/images/audit_ai_icon_no_text_1781784978137.jpg';
 
+interface CyberChipProps {
+  name: string;
+  className?: string;
+  style?: React.CSSProperties;
+  delay?: number;
+}
+
+function CyberChip({ name, className = "", style, delay = 0 }: CyberChipProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.5, z: -200 }}
+      animate={{ opacity: 1, scale: 1, z: 0 }}
+      transition={{ delay, duration: 1.2, ease: "easeOut" }}
+      style={{
+        ...style,
+        transformStyle: 'preserve-3d',
+      }}
+      className={`absolute bg-[#0b1322]/95 border border-cyan-500/35 rounded px-2 py-1 flex flex-col items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.15)] ${className}`}
+    >
+      {/* Pin design - Left */}
+      <div className="absolute -left-[3px] top-1/2 -translate-y-1/2 flex flex-col gap-0.5">
+        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-l-sm" />
+        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-l-sm" />
+        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-l-sm" />
+      </div>
+      {/* Pin design - Right */}
+      <div className="absolute -right-[3px] top-1/2 -translate-y-1/2 flex flex-col gap-0.5">
+        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-r-sm" />
+        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-r-sm" />
+        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-r-sm" />
+      </div>
+      {/* Pin design - Top */}
+      <div className="absolute -top-[3px] left-1/2 -translate-x-1/2 flex gap-0.5">
+        <div className="w-[1.5px] h-[3px] bg-cyan-400/40 rounded-t-sm" />
+        <div className="w-[1.5px] h-[3px] bg-cyan-400/40 rounded-t-sm" />
+      </div>
+      {/* Pin design - Bottom */}
+      <div className="absolute -bottom-[3px] left-1/2 -translate-x-1/2 flex gap-0.5">
+        <div className="w-[1.5px] h-[3px] bg-cyan-400/40 rounded-b-sm" />
+        <div className="w-[1.5px] h-[3px] bg-cyan-400/40 rounded-b-sm" />
+      </div>
+
+      <span className="text-[6px] font-mono tracking-widest text-cyan-400/90 uppercase font-bold select-none">{name}</span>
+      <div className="w-1 h-1 bg-cyan-400 rounded-full animate-pulse mt-0.5 shadow-[0_0_3px_#22d3ee]" />
+    </motion.div>
+  );
+}
+
 export default function SplashScreen({ onComplete }: { onComplete: () => void }) {
   const [stage, setStage] = useState<'entry' | 'loop' | 'exit'>('entry');
 
@@ -43,41 +91,214 @@ export default function SplashScreen({ onComplete }: { onComplete: () => void })
           />
 
           <div className="relative flex flex-col items-center">
-            {/* Logo Circular Container */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8, rotate: -15 }}
-              animate={{ 
-                opacity: 1, 
-                scale: stage === 'loop' ? [1, 1.05, 1] : 1,
-                rotate: stage === 'loop' ? 0 : 0
+            {/* 3D Perspective Stage Container */}
+            <div 
+              className="relative w-64 h-64 md:w-72 md:h-72 flex items-center justify-center"
+              style={{
+                perspective: "1000px",
+                transformStyle: "preserve-3d"
               }}
-              transition={{
-                duration: stage === 'loop' ? 4 : 1.2,
-                repeat: stage === 'loop' ? Infinity : 0,
-                ease: "easeInOut"
-              }}
-              className="relative w-40 h-40 md:w-48 md:h-48 rounded-full p-1 shadow-2xl shadow-cyan-900/40 border border-slate-800/50 flex items-center justify-center overflow-hidden"
             >
-              {/* Outer scanning ring */}
-              <motion.div 
-                className="absolute inset-0 rounded-full border border-cyan-500/30"
-                animate={{ rotate: 360 }}
-                transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+              {/* Circuit Connecting Lines (SVG inside 3D stage) */}
+              <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox="0 0 100 100">
+                <defs>
+                  <linearGradient id="beamGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.1" />
+                    <stop offset="50%" stopColor="#38bdf8" stopOpacity="1" />
+                    <stop offset="100%" stopColor="#22d3ee" stopOpacity="0.1" />
+                  </linearGradient>
+                </defs>
+                
+                {/* Circuit Lines - Base Static Layout */}
+                <path d="M 5 5 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                <path d="M 95 10 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                <path d="M 4 88 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                <path d="M 92 92 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                <path d="M -10 45 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                <path d="M 110 48 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                
+                <path d="M 5 5 L -10 45" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                <path d="M 95 10 L 110 48" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                <path d="M 4 88 L -10 45" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                <path d="M 92 92 L 110 48" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+
+                {/* Circuit Lines - Pulsing Beams */}
+                <motion.path
+                  d="M 5 5 L 50 50"
+                  fill="none"
+                  stroke="url(#beamGradient)"
+                  strokeWidth="1.2"
+                  strokeDasharray="8 32"
+                  animate={{ strokeDashoffset: [40, 0] }}
+                  transition={{ duration: 2.8, repeat: Infinity, ease: "linear" }}
+                />
+                <motion.path
+                  d="M 95 10 L 50 50"
+                  fill="none"
+                  stroke="url(#beamGradient)"
+                  strokeWidth="1.2"
+                  strokeDasharray="8 32"
+                  animate={{ strokeDashoffset: [-40, 0] }}
+                  transition={{ duration: 3.2, repeat: Infinity, ease: "linear" }}
+                />
+                <motion.path
+                  d="M 4 88 L 50 50"
+                  fill="none"
+                  stroke="url(#beamGradient)"
+                  strokeWidth="1.2"
+                  strokeDasharray="8 32"
+                  animate={{ strokeDashoffset: [40, 0] }}
+                  transition={{ duration: 2.5, repeat: Infinity, ease: "linear" }}
+                />
+                <motion.path
+                  d="M 92 92 L 50 50"
+                  fill="none"
+                  stroke="url(#beamGradient)"
+                  strokeWidth="1.2"
+                  strokeDasharray="8 32"
+                  animate={{ strokeDashoffset: [-40, 0] }}
+                  transition={{ duration: 3.0, repeat: Infinity, ease: "linear" }}
+                />
+                <motion.path
+                  d="M -10 45 L 50 50"
+                  fill="none"
+                  stroke="url(#beamGradient)"
+                  strokeWidth="1.2"
+                  strokeDasharray="8 32"
+                  animate={{ strokeDashoffset: [40, 0] }}
+                  transition={{ duration: 2.2, repeat: Infinity, ease: "linear" }}
+                />
+                <motion.path
+                  d="M 110 48 L 50 50"
+                  fill="none"
+                  stroke="url(#beamGradient)"
+                  strokeWidth="1.2"
+                  strokeDasharray="8 32"
+                  animate={{ strokeDashoffset: [-40, 0] }}
+                  transition={{ duration: 2.7, repeat: Infinity, ease: "linear" }}
+                />
+                
+                {/* Inter-chip connections */}
+                <motion.path
+                  d="M 5 5 L -10 45"
+                  fill="none"
+                  stroke="url(#beamGradient)"
+                  strokeWidth="1"
+                  strokeDasharray="6 24"
+                  animate={{ strokeDashoffset: [-30, 0] }}
+                  transition={{ duration: 2.0, repeat: Infinity, ease: "linear" }}
+                />
+                <motion.path
+                  d="M 95 10 L 110 48"
+                  fill="none"
+                  stroke="url(#beamGradient)"
+                  strokeWidth="1"
+                  strokeDasharray="6 24"
+                  animate={{ strokeDashoffset: [30, 0] }}
+                  transition={{ duration: 2.4, repeat: Infinity, ease: "linear" }}
+                />
+                <motion.path
+                  d="M 4 88 L -10 45"
+                  fill="none"
+                  stroke="url(#beamGradient)"
+                  strokeWidth="1"
+                  strokeDasharray="6 24"
+                  animate={{ strokeDashoffset: [30, 0] }}
+                  transition={{ duration: 2.1, repeat: Infinity, ease: "linear" }}
+                />
+                <motion.path
+                  d="M 92 92 L 110 48"
+                  fill="none"
+                  stroke="url(#beamGradient)"
+                  strokeWidth="1"
+                  strokeDasharray="6 24"
+                  animate={{ strokeDashoffset: [-30, 0] }}
+                  transition={{ duration: 2.5, repeat: Infinity, ease: "linear" }}
+                />
+              </svg>
+
+              {/* Surrounding Cybernetic Chips with 3D depths */}
+              <CyberChip 
+                name="AI_CORE" 
+                className="top-[5%] left-[5%]" 
+                style={{ transform: 'translateZ(-140px) scale(0.85)' }} 
+                delay={0.2} 
               />
-              {/* Inner ring */}
-              <motion.div 
-                className="absolute inset-2 rounded-full border-t border-b border-blue-400/40"
-                animate={{ rotate: -360 }}
-                transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+              <CyberChip 
+                name="MEM_L3" 
+                className="top-[10%] right-[5%]" 
+                style={{ transform: 'translateZ(-90px) scale(0.9)' }} 
+                delay={0.4} 
               />
-              
-              <img 
-                src={LogoImage} 
-                alt="Audit AI Engine" 
-                className="w-full h-full object-cover rounded-full mix-blend-lighten"
+              <CyberChip 
+                name="SEC_GATE" 
+                className="bottom-[12%] left-[4%]" 
+                style={{ transform: 'translateZ(-110px) scale(0.85)' }} 
+                delay={0.3} 
               />
-              
-            </motion.div>
+              <CyberChip 
+                name="BUS_SYNC" 
+                className="bottom-[8%] right-[8%]" 
+                style={{ transform: 'translateZ(-130px) scale(0.85)' }} 
+                delay={0.5} 
+              />
+              <CyberChip 
+                name="CLK_CTRL" 
+                className="top-[45%] -left-[10%] md:-left-[15%]" 
+                style={{ transform: 'translateZ(-70px) scale(0.9)' }} 
+                delay={0.1} 
+              />
+              <CyberChip 
+                name="IO_TRANS" 
+                className="top-[48%] -right-[10%] md:-right-[15%]" 
+                style={{ transform: 'translateZ(-80px) scale(0.9)' }} 
+                delay={0.6} 
+              />
+
+              {/* Central Logo Container with depth and rotate 3D entry */}
+              <motion.div
+                initial={{ 
+                  opacity: 0, 
+                  scale: 0.3, 
+                  rotateY: 65, 
+                  rotateX: 25, 
+                  z: -300 
+                }}
+                animate={{ 
+                  opacity: 1, 
+                  scale: stage === 'loop' ? [1, 1.03, 1] : 1,
+                  rotateY: stage === 'loop' ? 0 : 0,
+                  rotateX: stage === 'loop' ? 0 : 0,
+                  z: stage === 'loop' ? 10 : 0,
+                }}
+                transition={{
+                  duration: stage === 'loop' ? 4 : 1.6,
+                  repeat: stage === 'loop' ? Infinity : 0,
+                  ease: "easeOut"
+                }}
+                className="relative w-40 h-40 md:w-48 md:h-48 rounded-full p-1 shadow-2xl shadow-cyan-900/40 border border-slate-800/50 flex items-center justify-center overflow-hidden bg-[#070b13]"
+                style={{ transformStyle: 'preserve-3d' }}
+              >
+                {/* Outer scanning ring */}
+                <motion.div 
+                  className="absolute inset-0 rounded-full border border-cyan-500/30"
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+                />
+                {/* Inner ring */}
+                <motion.div 
+                  className="absolute inset-2 rounded-full border-t border-b border-blue-400/40"
+                  animate={{ rotate: -360 }}
+                  transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+                />
+                
+                <img 
+                  src={LogoImage} 
+                  alt="Audit AI Engine" 
+                  className="w-full h-full object-cover rounded-full mix-blend-lighten relative z-10"
+                />
+              </motion.div>
+            </div>
 
             {/* Application Name */}
             <motion.div
