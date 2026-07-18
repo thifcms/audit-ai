@@ -2,7 +2,7 @@ const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
 
-const sourceImage = path.join(__dirname, 'src', 'assets', 'images', 'audit_ai_new_concept_logo_1784392119390.jpg');
+const sourceImage = path.join(__dirname, 'src', 'assets', 'images', 'audit_ai_motherboard_brain_logo_1784399483889.jpg');
 const publicDir = path.join(__dirname, 'public');
 const distDir = path.join(__dirname, 'dist');
 

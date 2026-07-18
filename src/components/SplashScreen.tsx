@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import LogoImage from '../assets/images/audit_ai_new_concept_logo_1784392119390.jpg';
+import LogoImage from '../assets/images/audit_ai_motherboard_brain_logo_1784399483889.jpg';
 
 interface CyberChipProps {
   name: string;
