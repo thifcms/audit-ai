@@ -110,111 +110,53 @@ export default function SplashScreen({ onComplete }: { onComplete: () => void })
                 </defs>
                 
                 {/* Circuit Lines - Base Static Layout */}
-                <path d="M 5 5 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
-                <path d="M 95 10 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
-                <path d="M 4 88 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
-                <path d="M 92 92 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
-                <path d="M -10 45 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
-                <path d="M 110 48 L 50 50" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
-                
-                <path d="M 5 5 L -10 45" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
-                <path d="M 95 10 L 110 48" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
-                <path d="M 4 88 L -10 45" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
-                <path d="M 92 92 L 110 48" fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                {[
+                  "M 5 5 L 50 50", "M 95 10 L 50 50", "M 4 88 L 50 50", "M 92 92 L 50 50",
+                  "M -10 45 L 50 50", "M 110 48 L 50 50", "M 5 5 L -10 45", "M 95 10 L 110 48",
+                  "M 4 88 L -10 45", "M 92 92 L 110 48"
+                ].map((d, i) => (
+                  <path key={`static-${i}`} d={d} fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
+                ))}
 
                 {/* Circuit Lines - Pulsing Beams */}
-                <motion.path
-                  d="M 5 5 L 50 50"
-                  fill="none"
-                  stroke="url(#beamGradient)"
-                  strokeWidth="1.2"
-                  strokeDasharray="8 32"
-                  animate={{ strokeDashoffset: [40, 0] }}
-                  transition={{ duration: 2.8, repeat: Infinity, ease: "linear" }}
-                />
-                <motion.path
-                  d="M 95 10 L 50 50"
-                  fill="none"
-                  stroke="url(#beamGradient)"
-                  strokeWidth="1.2"
-                  strokeDasharray="8 32"
-                  animate={{ strokeDashoffset: [-40, 0] }}
-                  transition={{ duration: 3.2, repeat: Infinity, ease: "linear" }}
-                />
-                <motion.path
-                  d="M 4 88 L 50 50"
-                  fill="none"
-                  stroke="url(#beamGradient)"
-                  strokeWidth="1.2"
-                  strokeDasharray="8 32"
-                  animate={{ strokeDashoffset: [40, 0] }}
-                  transition={{ duration: 2.5, repeat: Infinity, ease: "linear" }}
-                />
-                <motion.path
-                  d="M 92 92 L 50 50"
-                  fill="none"
-                  stroke="url(#beamGradient)"
-                  strokeWidth="1.2"
-                  strokeDasharray="8 32"
-                  animate={{ strokeDashoffset: [-40, 0] }}
-                  transition={{ duration: 3.0, repeat: Infinity, ease: "linear" }}
-                />
-                <motion.path
-                  d="M -10 45 L 50 50"
-                  fill="none"
-                  stroke="url(#beamGradient)"
-                  strokeWidth="1.2"
-                  strokeDasharray="8 32"
-                  animate={{ strokeDashoffset: [40, 0] }}
-                  transition={{ duration: 2.2, repeat: Infinity, ease: "linear" }}
-                />
-                <motion.path
-                  d="M 110 48 L 50 50"
-                  fill="none"
-                  stroke="url(#beamGradient)"
-                  strokeWidth="1.2"
-                  strokeDasharray="8 32"
-                  animate={{ strokeDashoffset: [-40, 0] }}
-                  transition={{ duration: 2.7, repeat: Infinity, ease: "linear" }}
-                />
+                {[
+                  { d: "M 5 5 L 50 50", dur: 2.8, rev: false },
+                  { d: "M 95 10 L 50 50", dur: 3.2, rev: true },
+                  { d: "M 4 88 L 50 50", dur: 2.5, rev: false },
+                  { d: "M 92 92 L 50 50", dur: 3.0, rev: true },
+                  { d: "M -10 45 L 50 50", dur: 2.2, rev: false },
+                  { d: "M 110 48 L 50 50", dur: 2.7, rev: true }
+                ].map((beam, i) => (
+                  <motion.path
+                    key={`beam-${i}`}
+                    d={beam.d}
+                    fill="none"
+                    stroke="url(#beamGradient)"
+                    strokeWidth="1.2"
+                    strokeDasharray="8 32"
+                    animate={{ strokeDashoffset: beam.rev ? [-40, 0] : [40, 0] }}
+                    transition={{ duration: beam.dur, repeat: Infinity, ease: "linear" }}
+                  />
+                ))}
                 
                 {/* Inter-chip connections */}
-                <motion.path
-                  d="M 5 5 L -10 45"
-                  fill="none"
-                  stroke="url(#beamGradient)"
-                  strokeWidth="1"
-                  strokeDasharray="6 24"
-                  animate={{ strokeDashoffset: [-30, 0] }}
-                  transition={{ duration: 2.0, repeat: Infinity, ease: "linear" }}
-                />
-                <motion.path
-                  d="M 95 10 L 110 48"
-                  fill="none"
-                  stroke="url(#beamGradient)"
-                  strokeWidth="1"
-                  strokeDasharray="6 24"
-                  animate={{ strokeDashoffset: [30, 0] }}
-                  transition={{ duration: 2.4, repeat: Infinity, ease: "linear" }}
-                />
-                <motion.path
-                  d="M 4 88 L -10 45"
-                  fill="none"
-                  stroke="url(#beamGradient)"
-                  strokeWidth="1"
-                  strokeDasharray="6 24"
-                  animate={{ strokeDashoffset: [30, 0] }}
-                  transition={{ duration: 2.1, repeat: Infinity, ease: "linear" }}
-                />
-                <motion.path
-                  d="M 92 92 L 110 48"
-                  fill="none"
-                  stroke="url(#beamGradient)"
-                  strokeWidth="1"
-                  strokeDasharray="6 24"
-                  animate={{ strokeDashoffset: [-30, 0] }}
-                  transition={{ duration: 2.5, repeat: Infinity, ease: "linear" }}
-                />
+                {[
+                  { d: "M 5 5 L -10 45", dur: 2.0, rev: true },
+                  { d: "M 95 10 L 110 48", dur: 2.4, rev: false },
+                  { d: "M 4 88 L -10 45", dur: 2.1, rev: false },
+                  { d: "M 92 92 L 110 48", dur: 2.5, rev: true }
+                ].map((conn, i) => (
+                  <motion.path
+                    key={`conn-${i}`}
+                    d={conn.d}
+                    fill="none"
+                    stroke="url(#beamGradient)"
+                    strokeWidth="1"
+                    strokeDasharray="6 24"
+                    animate={{ strokeDashoffset: conn.rev ? [-30, 0] : [30, 0] }}
+                    transition={{ duration: conn.dur, repeat: Infinity, ease: "linear" }}
+                  />
+                ))}
               </svg>
 
               {/* Surrounding Cybernetic Chips with 3D depths */}
