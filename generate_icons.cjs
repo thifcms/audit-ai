@@ -39,6 +39,7 @@ async function processIcon(size, filename) {
     }
   } catch (error) {
     console.error(`[IconGen] Error processing ${filename}:`, error);
+    throw error;
   }
 }
 
@@ -49,9 +50,14 @@ async function run() {
   }
 
   console.log('[IconGen] Starting PWA icon generation...');
-  await processIcon(192, 'icon-192.png');
-  await processIcon(512, 'icon-512.png');
-  console.log('[IconGen] Completed successfully!');
+  try {
+    await processIcon(192, 'icon-192.png');
+    await processIcon(512, 'icon-512.png');
+    console.log('[IconGen] Completed successfully!');
+  } catch (err) {
+    console.error('[IconGen] CRITICAL ERROR during icon generation:', err.message);
+    process.exit(1);
+  }
 }
 
 run();
