@@ -1588,23 +1588,21 @@ async function startServer() {
 
   apiRouter.get("/learning/format-candidates/pending", async (req, res) => {
     try {
-      const snap = await getDB().collection("format_candidates").get();
-      const allDocs = snap.docs.map(d => d.data());
+      const snap = await getDB().collection("format_candidates")
+        .where("status", "==", "pending_review")
+        .orderBy("createdAt", "desc")
+        .limit(5)
+        .get();
       
-      const pendingCandidates = allDocs
-        .filter(d => d.status === "pending_review")
-        .sort((a, b) => {
-          const tA = (a.createdAt && a.createdAt.seconds) ? a.createdAt.seconds : 0;
-          const tB = (b.createdAt && b.createdAt.seconds) ? b.createdAt.seconds : 0;
-          return tB - tA;
-        })
-        .slice(0, 5)
-        .map(d => ({
+      const pendingCandidates = snap.docs.map(doc => {
+        const d = doc.data();
+        return {
           id: d.id,
           resultadosSample: d.resultadosSample || [],
           resultCount: d.resultCount || 0,
           createdAt: d.createdAt
-        }));
+        };
+      });
 
       return res.status(200).json({
         success: true,
