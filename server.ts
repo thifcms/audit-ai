@@ -1593,16 +1593,7 @@ async function startServer() {
         .orderBy("createdAt", "desc")
         .limit(5)
         .get();
-      
-      const pendingCandidates = snap.docs.map(doc => {
-        const d = doc.data();
-        return {
-          id: d.id,
-          resultadosSample: d.resultadosSample || [],
-          resultCount: d.resultCount || 0,
-          createdAt: d.createdAt
-        };
-      });
+      const pendingCandidates = snap.docs.map(d => d.data());
 
       return res.status(200).json({
         success: true,
