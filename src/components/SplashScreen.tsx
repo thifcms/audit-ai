@@ -2,54 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import LogoImage from '../assets/images/audit_ai_motherboard_brain_logo_1784399483889.jpg';
 
-interface CyberChipProps {
-  name: string;
-  className?: string;
-  style?: React.CSSProperties;
-  delay?: number;
-}
-
-function CyberChip({ name, className = "", style, delay = 0 }: CyberChipProps) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.5, z: -200 }}
-      animate={{ opacity: 1, scale: 1, z: 0 }}
-      transition={{ delay, duration: 1.2, ease: "easeOut" }}
-      style={{
-        ...style,
-        transformStyle: 'preserve-3d',
-      }}
-      className={`absolute bg-[#0b1322]/95 border border-cyan-500/35 rounded px-2 py-1 flex flex-col items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.15)] ${className}`}
-    >
-      {/* Pin design - Left */}
-      <div className="absolute -left-[3px] top-1/2 -translate-y-1/2 flex flex-col gap-0.5">
-        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-l-sm" />
-        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-l-sm" />
-        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-l-sm" />
-      </div>
-      {/* Pin design - Right */}
-      <div className="absolute -right-[3px] top-1/2 -translate-y-1/2 flex flex-col gap-0.5">
-        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-r-sm" />
-        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-r-sm" />
-        <div className="w-[3px] h-[1.5px] bg-cyan-400/40 rounded-r-sm" />
-      </div>
-      {/* Pin design - Top */}
-      <div className="absolute -top-[3px] left-1/2 -translate-x-1/2 flex gap-0.5">
-        <div className="w-[1.5px] h-[3px] bg-cyan-400/40 rounded-t-sm" />
-        <div className="w-[1.5px] h-[3px] bg-cyan-400/40 rounded-t-sm" />
-      </div>
-      {/* Pin design - Bottom */}
-      <div className="absolute -bottom-[3px] left-1/2 -translate-x-1/2 flex gap-0.5">
-        <div className="w-[1.5px] h-[3px] bg-cyan-400/40 rounded-b-sm" />
-        <div className="w-[1.5px] h-[3px] bg-cyan-400/40 rounded-b-sm" />
-      </div>
-
-      <span className="text-[6px] font-mono tracking-widest text-cyan-400/90 uppercase font-bold select-none">{name}</span>
-      <div className="w-1 h-1 bg-cyan-400 rounded-full animate-pulse mt-0.5 shadow-[0_0_3px_#22d3ee]" />
-    </motion.div>
-  );
-}
-
 export default function SplashScreen({ onComplete }: { onComplete: () => void }) {
   const [stage, setStage] = useState<'entry' | 'loop' | 'exit'>('entry');
 
@@ -99,104 +51,6 @@ export default function SplashScreen({ onComplete }: { onComplete: () => void })
                 transformStyle: "preserve-3d"
               }}
             >
-              {/* Circuit Connecting Lines (SVG inside 3D stage) */}
-              <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox="0 0 100 100">
-                <defs>
-                  <linearGradient id="beamGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.1" />
-                    <stop offset="50%" stopColor="#38bdf8" stopOpacity="1" />
-                    <stop offset="100%" stopColor="#22d3ee" stopOpacity="0.1" />
-                  </linearGradient>
-                </defs>
-                
-                {/* Circuit Lines - Base Static Layout */}
-                {[
-                  "M 5 5 L 50 50", "M 95 10 L 50 50", "M 4 88 L 50 50", "M 92 92 L 50 50",
-                  "M -10 45 L 50 50", "M 110 48 L 50 50", "M 5 5 L -10 45", "M 95 10 L 110 48",
-                  "M 4 88 L -10 45", "M 92 92 L 110 48"
-                ].map((d, i) => (
-                  <path key={`static-${i}`} d={d} fill="none" stroke="rgba(34, 211, 238, 0.12)" strokeWidth="1" />
-                ))}
-
-                {/* Circuit Lines - Pulsing Beams */}
-                {[
-                  { d: "M 5 5 L 50 50", dur: 2.8, rev: false },
-                  { d: "M 95 10 L 50 50", dur: 3.2, rev: true },
-                  { d: "M 4 88 L 50 50", dur: 2.5, rev: false },
-                  { d: "M 92 92 L 50 50", dur: 3.0, rev: true },
-                  { d: "M -10 45 L 50 50", dur: 2.2, rev: false },
-                  { d: "M 110 48 L 50 50", dur: 2.7, rev: true }
-                ].map((beam, i) => (
-                  <motion.path
-                    key={`beam-${i}`}
-                    d={beam.d}
-                    fill="none"
-                    stroke="url(#beamGradient)"
-                    strokeWidth="1.2"
-                    strokeDasharray="8 32"
-                    animate={{ strokeDashoffset: beam.rev ? [-40, 0] : [40, 0] }}
-                    transition={{ duration: beam.dur, repeat: Infinity, ease: "linear" }}
-                  />
-                ))}
-                
-                {/* Inter-chip connections */}
-                {[
-                  { d: "M 5 5 L -10 45", dur: 2.0, rev: true },
-                  { d: "M 95 10 L 110 48", dur: 2.4, rev: false },
-                  { d: "M 4 88 L -10 45", dur: 2.1, rev: false },
-                  { d: "M 92 92 L 110 48", dur: 2.5, rev: true }
-                ].map((conn, i) => (
-                  <motion.path
-                    key={`conn-${i}`}
-                    d={conn.d}
-                    fill="none"
-                    stroke="url(#beamGradient)"
-                    strokeWidth="1"
-                    strokeDasharray="6 24"
-                    animate={{ strokeDashoffset: conn.rev ? [-30, 0] : [30, 0] }}
-                    transition={{ duration: conn.dur, repeat: Infinity, ease: "linear" }}
-                  />
-                ))}
-              </svg>
-
-              {/* Surrounding Cybernetic Chips with 3D depths */}
-              <CyberChip 
-                name="AI_CORE" 
-                className="top-[5%] left-[5%]" 
-                style={{ transform: 'translateZ(-140px) scale(0.85)' }} 
-                delay={0.2} 
-              />
-              <CyberChip 
-                name="MEM_L3" 
-                className="top-[10%] right-[5%]" 
-                style={{ transform: 'translateZ(-90px) scale(0.9)' }} 
-                delay={0.4} 
-              />
-              <CyberChip 
-                name="SEC_GATE" 
-                className="bottom-[12%] left-[4%]" 
-                style={{ transform: 'translateZ(-110px) scale(0.85)' }} 
-                delay={0.3} 
-              />
-              <CyberChip 
-                name="BUS_SYNC" 
-                className="bottom-[8%] right-[8%]" 
-                style={{ transform: 'translateZ(-130px) scale(0.85)' }} 
-                delay={0.5} 
-              />
-              <CyberChip 
-                name="CLK_CTRL" 
-                className="top-[45%] -left-[10%] md:-left-[15%]" 
-                style={{ transform: 'translateZ(-70px) scale(0.9)' }} 
-                delay={0.1} 
-              />
-              <CyberChip 
-                name="IO_TRANS" 
-                className="top-[48%] -right-[10%] md:-right-[15%]" 
-                style={{ transform: 'translateZ(-80px) scale(0.9)' }} 
-                delay={0.6} 
-              />
-
               {/* Central Logo Container with depth and rotate 3D entry */}
               <motion.div
                 initial={{ 
@@ -218,26 +72,48 @@ export default function SplashScreen({ onComplete }: { onComplete: () => void })
                   repeat: stage === 'loop' ? Infinity : 0,
                   ease: "easeOut"
                 }}
-                className="relative w-40 h-40 md:w-48 md:h-48 rounded-full p-1 shadow-2xl shadow-cyan-900/40 border border-slate-800/50 flex items-center justify-center overflow-hidden bg-[#070b13]"
+                className="relative w-44 h-44 md:w-52 md:h-52 flex items-center justify-center bg-[#070b13]"
                 style={{ transformStyle: 'preserve-3d' }}
               >
+                {/* Ambient pulsing glow behind the image */}
+                <motion.div 
+                  className="absolute inset-4 rounded-full bg-cyan-500/10"
+                  animate={{
+                    boxShadow: [
+                      "0 0 45px 15px rgba(34, 211, 238, 0.25)",
+                      "0 0 85px 30px rgba(34, 211, 238, 0.6)",
+                      "0 0 45px 15px rgba(34, 211, 238, 0.25)"
+                    ]
+                  }}
+                  transition={{
+                    duration: 3,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                  style={{ transform: 'translateZ(-15px)' }}
+                />
+
                 {/* Outer scanning ring */}
                 <motion.div 
-                  className="absolute inset-0 rounded-full border border-cyan-500/30"
+                  className="absolute inset-4 rounded-full border border-cyan-500/20"
                   animate={{ rotate: 360 }}
-                  transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+                  transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
                 />
                 {/* Inner ring */}
                 <motion.div 
-                  className="absolute inset-2 rounded-full border-t border-b border-blue-400/40"
+                  className="absolute inset-8 rounded-full border-t border-b border-blue-400/30"
                   animate={{ rotate: -360 }}
-                  transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+                  transition={{ duration: 18, repeat: Infinity, ease: "linear" }}
                 />
                 
                 <img 
                   src={LogoImage} 
                   alt="Audit AI Engine" 
-                  className="w-full h-full object-cover rounded-full mix-blend-lighten relative z-10"
+                  className="w-[85%] h-[85%] object-cover mix-blend-lighten relative z-10"
+                  style={{
+                    maskImage: 'radial-gradient(circle, rgba(0,0,0,1) 50%, rgba(0,0,0,0) 100%)',
+                    WebkitMaskImage: 'radial-gradient(circle, rgba(0,0,0,1) 50%, rgba(0,0,0,0) 100%)'
+                  }}
                 />
               </motion.div>
             </div>
