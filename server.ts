@@ -1698,6 +1698,10 @@ async function startServer() {
       try {
         if (mimeType === "application/pdf" || filename?.toLowerCase().endsWith(".pdf")) {
           extractedText = await parsePdfText(fileBuffer);
+          console.log(`[DIAGNOSTIC BASE /gemini/extract] Text length: ${extractedText ? extractedText.length : 0}`);
+          if (extractedText) {
+            console.log(`[DIAGNOSTIC BASE /gemini/extract] First 1000 chars:\n${extractedText.substring(0, 1000)}`);
+          }
         } else {
           const TesseractModule = await import("tesseract.js") as any;
           const Tesseract = TesseractModule.default || TesseractModule;
@@ -2199,6 +2203,10 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       if (prompt) {
         try {
           pdfText = await parsePdfText(fileBuffer);
+          console.log(`[DIAGNOSTIC PROMPT /public/extract] Text length: ${pdfText ? pdfText.length : 0}`);
+          if (pdfText) {
+            console.log(`[DIAGNOSTIC PROMPT /public/extract] First 1000 chars:\n${pdfText.substring(0, 1000)}`);
+          }
           
           // Tenta padrão local ORTTRAM se especificado no prompt
           const isOrttramPrompt = prompt.toLowerCase().includes("medico cadastrado") || prompt.toLowerCase().includes("médico cadastrado");
@@ -2428,6 +2436,10 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       try {
         if (mimeType === "application/pdf" || filename?.toLowerCase().endsWith(".pdf")) {
           extractedText = await parsePdfText(fileBuffer);
+          console.log(`[DIAGNOSTIC BASE /public/extract] Text length: ${extractedText ? extractedText.length : 0}`);
+          if (extractedText) {
+            console.log(`[DIAGNOSTIC BASE /public/extract] First 1000 chars:\n${extractedText.substring(0, 1000)}`);
+          }
         } else {
           const TesseractModule = await import("tesseract.js") as any;
           const Tesseract = TesseractModule.default || TesseractModule;
