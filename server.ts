@@ -179,7 +179,7 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
     const paciente = beforeDoc.trim();
     
     const suffixStart = docIdx + normalizedCadastrado.length;
-    let suffix = restOfLine.substring(suffixStart);
+    let suffix = normalizedRest.substring(suffixStart);
     
     // --- LIMPEZA DE ESPAÇOS POR KERNING NO SUFIXO ---
     const rsIndices: number[] = [];
