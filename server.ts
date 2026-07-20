@@ -67,12 +67,8 @@ function getImageHash(base64Data: string): string {
 
 async function parsePdfText(fileBuffer: Buffer): Promise<string> {
   const tStart = performance.now();
-  console.log(`[parsePdfText TIMING] [${new Date().toISOString()}] Starting parsePdfText function...`);
   try {
-    const tImportStart = performance.now();
     const pdfParseModule = await import("pdf-parse") as any;
-    const tImportEnd = performance.now();
-    console.log(`[parsePdfText TIMING] [${new Date().toISOString()}] Import of pdf-parse completed in ${(tImportEnd - tImportStart).toFixed(2)}ms`);
     
     let text = "";
     if (pdfParseModule.PDFParse) {
@@ -94,8 +90,6 @@ async function parsePdfText(fileBuffer: Buffer): Promise<string> {
         console.warn("[parsePdfText] Nenhum método de parse de PDF válido encontrado.");
       }
     }
-    const tEnd = performance.now();
-    console.log(`[parsePdfText TIMING] [${new Date().toISOString()}] Parsing logic completed in ${(tEnd - tImportEnd).toFixed(2)}ms. Total parsePdfText time: ${(tEnd - tStart).toFixed(2)}ms`);
     return text;
   } catch (err: any) {
     const tEnd = performance.now();
@@ -826,9 +820,6 @@ function parseBrazilianDecimal(val: any): number {
 
 function normalizeExtractionData(resultData: any): any {
   if (!resultData) return { etiquetas: [] };
-  console.log('--- RAW EXTRACTION DATA ---');
-  console.log(JSON.stringify(resultData, null, 2));
-  console.log('DOCUMENT TYPE ORIGINAL:', resultData.documentType);
   
   const docType = String(resultData.documentType || "").toLowerCase().trim();
   const isNotaFiscal = docType === "nota_fiscal" || docType === "nota fiscal" || docType === "fatura" || docType === "recibo";
@@ -1533,9 +1524,8 @@ async function startServer() {
   // Mount logic under /api
   const apiRouter = express.Router();
   
-  // Debug log for all /api requests
+  // Debug log for all /api requests (disabled to reduce noise in production)
   apiRouter.use((req, res, next) => {
-    console.log(`[API Debug] ${req.method} ${req.url} (Path: ${req.path})`);
     next();
   });
 
@@ -1707,10 +1697,8 @@ async function startServer() {
       let extractedText = "";
       try {
         if (mimeType === "application/pdf" || filename?.toLowerCase().endsWith(".pdf")) {
-          console.log("[Direct Extraction Back] Extraindo texto do PDF preliminar...");
           extractedText = await parsePdfText(fileBuffer);
         } else {
-          console.log("[Direct Extraction Back] Convertendo imagem e extraindo texto com Tesseract OCR preliminar...");
           const TesseractModule = await import("tesseract.js") as any;
           const Tesseract = TesseractModule.default || TesseractModule;
           const ocrPromise = Tesseract.recognize(fileBuffer, "por+eng").then((r: any) => r.data.text || "");
@@ -2103,7 +2091,6 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
 
       // Unify Schema and Filter Name Contamination
       resultData = normalizeExtractionData(resultData);
-      console.log("Pacientes recebidos da IA:", resultData?.etiquetas?.length || 0);
 
       // Register Learning Log for Stats Panel (Background operation - no await for rapid response)
       try {
@@ -2210,14 +2197,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
 
       let pdfText = "";
       if (prompt) {
-        console.log("[Direct Extraction] Recebida requisição com prompt customizado. Tentando padrão local antes do Gemini.");
-        
         try {
-          const tStart = performance.now();
-          console.log(`[TIMING] [${new Date().toISOString()}] Starting parsePdfText inside prompt-based extraction in /public/extract...`);
           pdfText = await parsePdfText(fileBuffer);
-          const tEnd = performance.now();
-          console.log(`[TIMING] [${new Date().toISOString()}] Finished parsePdfText in /public/extract. Time taken: ${(tEnd - tStart).toFixed(2)}ms`);
           
           // Tenta padrão local ORTTRAM se especificado no prompt
           const isOrttramPrompt = prompt.toLowerCase().includes("medico cadastrado") || prompt.toLowerCase().includes("médico cadastrado");
@@ -2323,7 +2304,6 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
           console.warn("[Direct Extraction] Erro na tentativa de extração local:", localErr);
         }
 
-        console.log("[Direct Extraction] Padrão local não encontrado ou inválido. Seguindo para o Gemini.");
         const filePart = {
           inlineData: {
             mimeType: mimeType || "image/jpeg",
@@ -2447,14 +2427,8 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       let extractedText = "";
       try {
         if (mimeType === "application/pdf" || filename?.toLowerCase().endsWith(".pdf")) {
-          console.log("[Direct Extraction Back] Extraindo texto do PDF preliminar...");
-          const tStart = performance.now();
-          console.log(`[TIMING] [${new Date().toISOString()}] Starting parsePdfText (preliminary OCR block) inside /public/extract...`);
           extractedText = await parsePdfText(fileBuffer);
-          const tEnd = performance.now();
-          console.log(`[TIMING] [${new Date().toISOString()}] Finished parsePdfText (preliminary OCR block) in /public/extract. Time taken: ${(tEnd - tStart).toFixed(2)}ms`);
         } else {
-          console.log("[Direct Extraction Back] Convertendo imagem e extraindo texto com Tesseract OCR preliminar...");
           const TesseractModule = await import("tesseract.js") as any;
           const Tesseract = TesseractModule.default || TesseractModule;
           const ocrPromise = Tesseract.recognize(fileBuffer, "por+eng").then((r: any) => r.data.text || "");
@@ -2850,7 +2824,6 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
 
       // Unify Schema and Filter Name Contamination
       resultData = normalizeExtractionData(resultData);
-      console.log("Pacientes recebidos da IA:", resultData?.etiquetas?.length || 0);
 
       // Register Learning Log for Stats Panel (Background operation - no await for rapid response)
       try {
@@ -3054,11 +3027,7 @@ Diretrizes:
   // Self-ping to prevent sleep on Render (every 10 minutes)
   setInterval(() => {
     const url = "https://audit-ai-6wed.onrender.com/health";
-    console.log(`[Self-Ping] Fazendo ping para manter o servidor ativo: ${url}`);
     fetch(url)
-      .then(res => {
-        console.log(`[Self-Ping] Resposta recebida. Status: ${res.status}`);
-      })
       .catch(err => {
         console.error(`[Self-Ping] Erro ao fazer ping:`, err.message || err);
       });
