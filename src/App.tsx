@@ -1,9 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import LearningDashboard from './components/LearningDashboard';
-import ReconciliationDashboard from './components/ReconciliationDashboard';
 import SplashScreen from './components/SplashScreen';
-import ApiTester from './components/ApiTester';
+
+const LearningDashboard = React.lazy(() => import('./components/LearningDashboard'));
+const ReconciliationDashboard = React.lazy(() => import('./components/ReconciliationDashboard'));
+const ApiTester = React.lazy(() => import('./components/ApiTester'));
+
+const LoadingSpinner = () => (
+  <div className="flex flex-col items-center justify-center py-12">
+    <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mb-4" />
+    <p className="text-slate-400 text-xs font-mono tracking-widest uppercase">Carregando painel...</p>
+  </div>
+);
 import ErrorBoundary from './ErrorBoundary';
 import { db, auth } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -1367,7 +1375,9 @@ export default function App() {
                 exit={{ opacity: 0, y: -15 }}
                 className="space-y-6"
               >
-                <ReconciliationDashboard />
+                <Suspense fallback={<LoadingSpinner />}>
+                  <ReconciliationDashboard />
+                </Suspense>
               </motion.div>
             )}
 
@@ -1717,7 +1727,9 @@ export default function App() {
                 className="space-y-6"
               >
                 {/* PAINEL DE APRENDIZADO */}
-                <LearningDashboard />
+                <Suspense fallback={<LoadingSpinner />}>
+                  <LearningDashboard />
+                </Suspense>
                 
                 <div className="bg-[#0b1120] border border-slate-900 rounded-3xl p-6 shadow-2xl">
                   <div className="flex items-center justify-between mb-5 border-b border-slate-850 pb-4">
@@ -2177,7 +2189,9 @@ export default function App() {
                 exit={{ opacity: 0, y: -15 }}
                 className="max-w-4xl mx-auto"
               >
-                <ApiTester />
+                <Suspense fallback={<LoadingSpinner />}>
+                  <ApiTester />
+                </Suspense>
               </motion.div>
             )}
           </AnimatePresence>
