@@ -5,7 +5,9 @@ import ReconciliationDashboard from './components/ReconciliationDashboard';
 import SplashScreen from './components/SplashScreen';
 import ApiTester from './components/ApiTester';
 import ErrorBoundary from './ErrorBoundary';
-import { db } from './firebase';
+import { db, auth } from './firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import LoginGate from './components/LoginGate';
 import { collection, addDoc, doc, setDoc, serverTimestamp, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import {
   Search,
@@ -40,7 +42,8 @@ import {
   CheckCircle,
   ArrowRight,
   FileSpreadsheet,
-  Cpu
+  Cpu,
+  Fingerprint
 } from 'lucide-react';
 import { PatientAuditItem, DocumentRecord, AuditSummary } from './types';
 
@@ -68,7 +71,85 @@ const SAMPLE_RECONCILIATION_RESULTS: PatientAuditItem[] = [
 ];
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+
+  const [isAuthenticatedViaBiometric, setIsAuthenticatedViaBiometric] = useState(false);
+  const [isRegisteringBiometric, setIsRegisteringBiometric] = useState(false);
+
+  const handleRegisterBiometric = async () => {
+    setIsRegisteringBiometric(true);
+    try {
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+      const userId = new Uint8Array(16);
+      window.crypto.getRandomValues(userId);
+      
+      const credentialOptions: CredentialCreationOptions = {
+        publicKey: {
+          challenge: challenge,
+          rp: {
+            name: "AuditAI Control Panel",
+            id: window.location.hostname
+          },
+          user: {
+            id: userId,
+            name: "thifcms@gmail.com",
+            displayName: "ThifCMS"
+          },
+          pubKeyCredParams: [
+            { type: "public-key", alg: -7 }, // ES256
+            { type: "public-key", alg: -257 } // RS256
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "required",
+            residentKey: "required"
+          },
+          timeout: 60000
+        }
+      };
+
+      const credential = await navigator.credentials.create(credentialOptions) as PublicKeyCredential;
+      if (credential) {
+        const credId = credential.id;
+        localStorage.setItem('auditai_biometria_credId', credId);
+        showToast("✓ Login por biometria configurado com sucesso neste dispositivo!");
+      }
+    } catch (err: any) {
+      console.error('Erro ao cadastrar biometria:', err);
+      alert('Erro ao configurar biometria: ' + (err.message || err));
+    } finally {
+      setIsRegisteringBiometric(false);
+    }
+  };
+
+  const handleDisableBiometric = () => {
+    localStorage.removeItem('auditai_biometria_credId');
+    showToast("✓ Login por biometria removido com sucesso!");
+  };
+
+  const isLoggedIn = user || isAuthenticatedViaBiometric;
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        const email = currentUser.email?.toLowerCase();
+        if (email === 'thifcms@gmail.com') {
+          setUser(currentUser);
+        } else {
+          console.warn(`Tentativa de acesso não autorizada com o e-mail: ${currentUser.email}`);
+          await auth.signOut();
+          setUser(null);
+        }
+      } else {
+        setUser(null);
+      }
+      setAuthChecked(true);
+    });
+    return () => unsubscribe();
+  }, []);
   // Navigation Tabs state
   const [activeTab, setActiveTab] = useState<'dashboard' | 'documentos' | 'auditorias' | 'comparar' | 'calculadora' | 'relatorios' | 'treinar' | 'configuracoes' | 'teste-api'>('dashboard');
 
@@ -135,6 +216,24 @@ export default function App() {
   // PWA Install State
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-[#070b13] flex flex-col items-center justify-center">
+        <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mb-4" />
+        <p className="text-slate-400 text-xs font-mono tracking-widest uppercase">Verificando Credenciais...</p>
+      </div>
+    );
+  }
+
+  if (!isLoggedIn) {
+    return (
+      <LoginGate
+        onAuthSuccess={(signedInUser) => setUser(signedInUser)}
+        onBiometricSuccess={() => setIsAuthenticatedViaBiometric(true)}
+      />
+    );
+  }
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
@@ -394,6 +493,10 @@ export default function App() {
     }, 1200);
   };
 
+  const displayName = user?.displayName || (isAuthenticatedViaBiometric ? 'Admin (Biometria)' : 'Auditor');
+  const userEmail = user?.email || (isAuthenticatedViaBiometric ? 'thifcms@gmail.com' : '');
+  const userInitials = displayName.slice(0, 2).toUpperCase();
+
   return (
     <>
       <AnimatePresence>
@@ -451,16 +554,26 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-3 bg-[#080d19] border border-slate-900/40 px-3 py-1 rounded-xl">
-              <div className="w-7 h-7 bg-gradient-to-br from-indigo-600 to-cyan-500 text-xs font-bold text-white rounded-full flex items-center justify-center shadow-md">
-                AU
+              <div className="w-7 h-7 bg-gradient-to-br from-indigo-600 to-cyan-500 text-xs font-bold text-white rounded-full flex items-center justify-center shadow-md font-mono">
+                {userInitials}
               </div>
               <div className="hidden md:block text-left">
-                <p className="text-[10px] font-semibold text-slate-200">Auditor</p>
-                <p className="text-[8px] text-cyan-400 font-mono">
-                  {modelStrategy === 'rotation' ? 'gemini-revezamento' : modelStrategy === 'fixo-lite' ? 'gemini-3.1-flash-lite' : 'gemini-3.1-pro-preview'}
-                </p>
+                <p className="text-[10px] font-semibold text-slate-200 truncate max-w-[120px]">{displayName}</p>
+                <p className="text-[8px] text-slate-500 truncate max-w-[120px]">{userEmail}</p>
               </div>
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Serviço ativo" />
+              <button 
+                onClick={async () => {
+                  if (window.confirm('Deseja sair do painel?')) {
+                    await auth.signOut();
+                    setIsAuthenticatedViaBiometric(false);
+                    setUser(null);
+                  }
+                }}
+                className="text-slate-500 hover:text-red-400 p-1.5 rounded transition-colors"
+                title="Sair do Painel"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+              </button>
             </div>
           </div>
         </div>
@@ -627,6 +740,46 @@ export default function App() {
                 exit={{ opacity: 0, y: -15 }}
                 className="space-y-8"
               >
+                {/* BIOMETRIC ENROLLMENT BANNER (IF LOGGED IN VIA GOOGLE AND BIOMETRICS IS NOT SET UP) */}
+                {user && !localStorage.getItem('auditai_biometria_credId') && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="relative bg-gradient-to-r from-cyan-950/40 via-blue-950/20 to-slate-900 border border-cyan-500/25 rounded-3xl p-5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 overflow-hidden"
+                  >
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-2xl pointer-events-none" />
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-500/20 to-blue-600/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
+                        <Fingerprint className="w-6 h-6 animate-pulse" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
+                          Ativar Login por Biometria
+                        </h4>
+                        <p className="text-[11px] sm:text-xs text-slate-400 max-w-2xl font-normal leading-relaxed">
+                          Facilite seu acesso! Você pode cadastrar sua digital ou reconhecimento facial neste navegador para entrar rapidamente no Painel de Controle sem precisar do login do Google nas próximas vezes.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleRegisterBiometric}
+                      disabled={isRegisteringBiometric}
+                      className="shrink-0 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 font-bold text-[10px] uppercase tracking-wider text-white py-2.5 px-4 rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-cyan-950/30 hover:scale-[1.01]"
+                    >
+                      {isRegisteringBiometric ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Cadastrando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Fingerprint className="w-3.5 h-3.5" />
+                          <span>Ativar neste Dispositivo</span>
+                        </>
+                      )}
+                    </button>
+                  </motion.div>
+                )}
                 {/* BENTO GRID SUMMARY CARDS */}
                 <div id="bento-grid-summary" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                   {/* Card 1: Documents Read */}
@@ -1741,6 +1894,46 @@ export default function App() {
                         <option value="fixo-flash">🎯 Fixo: gemini-3.1-pro-preview (Modelo Principal)</option>
                         <option value="fixo-lite">⚡ Fixo: gemini-3.1-flash-lite (Modelo Econômico)</option>
                       </select>
+                    </div>
+
+                    <div className="border-t border-slate-850 pt-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <label className="text-xs text-slate-300 font-bold flex items-center gap-1.5">
+                            <Fingerprint className="w-4 h-4 text-cyan-400" />
+                            <span>Acesso Rápido por Biometria (WebAuthn)</span>
+                          </label>
+                          <p className="text-[10px] text-slate-500 font-normal">
+                            Cadastre a sua impressão digital ou reconhecimento facial para login direto neste navegador de forma segura.
+                          </p>
+                        </div>
+                        {localStorage.getItem('auditai_biometria_credId') ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] bg-emerald-950/40 text-emerald-400 font-mono border border-emerald-850 px-2 py-1 rounded">
+                              ✓ Configurado
+                            </span>
+                            <button
+                              onClick={handleDisableBiometric}
+                              className="text-red-400 hover:text-red-300 hover:underline text-[10px] font-bold"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={handleRegisterBiometric}
+                            disabled={isRegisteringBiometric}
+                            className="bg-cyan-950/60 hover:bg-cyan-900/50 border border-cyan-800/20 text-cyan-400 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                          >
+                            {isRegisteringBiometric ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Fingerprint className="w-3.5 h-3.5" />
+                            )}
+                            <span>Ativar Biometria</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-slate-850 pt-4 font-sans text-xs">
