@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { spawnSync } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -67,6 +68,34 @@ function getImageHash(base64Data: string): string {
 
 async function parsePdfText(fileBuffer: Buffer): Promise<string> {
   const tStart = performance.now();
+  
+  // Tenta extração via pdftotext -layout (preserva colunas do Excel/Tabelas)
+  try {
+    const result = spawnSync("pdftotext", ["-layout", "-", "-"], { 
+      input: fileBuffer,
+      encoding: "utf8",
+      timeout: 5000 // 5s budget
+    });
+    
+    if (result.status === 0 && result.stdout) {
+      const text = result.stdout.toString();
+      if (text.trim().length > 0) {
+        console.log(`[parsePdfText] Extração via pdftotext -layout bem-sucedida (${text.length} chars).`);
+        return text;
+      }
+    } else {
+      if (result.error) {
+        console.warn("[parsePdfText] Erro ao executar pdftotext:", result.error.message);
+      } else if (result.stderr) {
+        console.warn("[parsePdfText] pdftotext stderr:", result.stderr.toString());
+      }
+    }
+  } catch (err: any) {
+    console.warn("[parsePdfText] pdftotext não disponível ou falhou:", err.message);
+  }
+
+  // FALLBACK: pdf-parse (extração padrão que pode entrelaçar colunas)
+  console.log("[parsePdfText] Iniciando fallback via pdf-parse...");
   try {
     const pdfParseModule = await import("pdf-parse") as any;
     
@@ -87,13 +116,13 @@ async function parsePdfText(fileBuffer: Buffer): Promise<string> {
         const res = await p.getText();
         text = res.text || "";
       } else {
-        console.warn("[parsePdfText] Nenhum método de parse de PDF válido encontrado.");
+        console.warn("[parsePdfText] Nenhum método de parse de PDF válido encontrado no fallback.");
       }
     }
     return text;
   } catch (err: any) {
     const tEnd = performance.now();
-    console.error(`[parsePdfText TIMING] [${new Date().toISOString()}] Erro ao extrair texto do PDF após ${(tEnd - tStart).toFixed(2)}ms:`, err.message);
+    console.error(`[parsePdfText TIMING] [${new Date().toISOString()}] Erro no fallback do PDF após ${(tEnd - tStart).toFixed(2)}ms:`, err.message);
     return "";
   }
 }
@@ -3050,6 +3079,22 @@ Diretrizes:
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     warmUpPdfParser();
+
+    // Verificação de produção: pdftotext (Poppler)
+    try {
+      const check = spawnSync("which", ["pdftotext"], { encoding: "utf8" });
+      if (check.status === 0 && check.stdout.trim()) {
+        console.log(`[BOOT] pdftotext encontrado em: ${check.stdout.trim()}`);
+        const version = spawnSync("pdftotext", ["-v"], { encoding: "utf8" });
+        // pdftotext -v outputs its version info to stderr
+        const verLine = (version.stderr || "").split("\n")[0] || "versão desconhecida";
+        console.log(`[BOOT] Poppler: ${verLine}`);
+      } else {
+        console.warn("[BOOT] AVISO: pdftotext NÃO encontrado no PATH. Extração de PDF com '-layout' não funcionará.");
+      }
+    } catch (err: any) {
+      console.error("[BOOT] Erro ao verificar dependências do sistema:", err.message);
+    }
   });
 
   // Self-ping to prevent sleep on Render (every 10 minutes)
