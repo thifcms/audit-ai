@@ -159,11 +159,17 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
   
   const startRegex = /^(\d+)\s+(\d+)\s+(\d+)\s+(?:(\d{6,10})\s+)?(.+)$/;
   const endRegex = /\s+(\d{2}\/\d{2}\/\d{2,4})\s+(\d+)\s+(\d+)\s+R\$\s*([\d.,]+)\s*(?:([\d.,]+)%?\s+)?R\$\s*([\d.,]+)\s*$/i;
+
+  let debugStartMatchCount = 0;
+  let debugDocMatchCount = 0;
+  let debugEndMatchCount = 0;
+  let firstFailedSuffix = "";
   
   for (const line of lines) {
     const trimmedLine = line.trim();
     const startMatch = trimmedLine.match(startRegex);
     if (!startMatch) continue;
+    debugStartMatchCount++;
     
     const remessa = startMatch[1];
     const conta = startMatch[2];
@@ -174,6 +180,7 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
     const docIdx = normalizedRest.indexOf(normalizedCadastrado);
     
     if (docIdx === -1) continue;
+    debugDocMatchCount++;
     
     const beforeDoc = normalizedRest.substring(0, docIdx);
     const paciente = beforeDoc.trim();
@@ -213,7 +220,11 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
     // ------------------------------------------------
     
     const endMatch = suffix.match(endRegex);
-    if (!endMatch) continue;
+    if (!endMatch) {
+      if (!firstFailedSuffix) firstFailedSuffix = suffix;
+      continue;
+    }
+    debugEndMatchCount++;
     
     const data = endMatch[1];
     const quant = endMatch[2];
@@ -253,6 +264,11 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
       data_atendimento: data,
       atividade: atividade
     });
+  }
+  
+  console.log(`[ORTTRAM DIAGNOSTIC] Lines total: ${lines.length} | startRegex: ${debugStartMatchCount} | +docName: ${debugDocMatchCount} | +endRegex: ${debugEndMatchCount}`);
+  if (debugDocMatchCount > 0 && debugEndMatchCount === 0) {
+    console.log(`[ORTTRAM DIAGNOSTIC] Failed suffix sample: "${firstFailedSuffix.substring(0, 500)}"`);
   }
   
   if (parsedRows.length === 0) return null;
