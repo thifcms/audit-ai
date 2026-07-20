@@ -78,6 +78,11 @@ export default function App() {
   const [isAuthenticatedViaBiometric, setIsAuthenticatedViaBiometric] = useState(false);
   const [isRegisteringBiometric, setIsRegisteringBiometric] = useState(false);
 
+  // Lock screen / validation verification state
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [isUnlockLoading, setIsUnlockLoading] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+
   const handleRegisterBiometric = async () => {
     setIsRegisteringBiometric(true);
     try {
@@ -128,6 +133,69 @@ export default function App() {
   const handleDisableBiometric = () => {
     localStorage.removeItem('auditai_biometria_credId');
     showToast("✓ Login por biometria removido com sucesso!");
+  };
+
+  const base64urlToBuffer = (base64url: string): ArrayBuffer => {
+    let base64 = base64url
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    const binary = window.atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  };
+
+  const handleUnlockBiometricSignIn = async () => {
+    const storedCredId = localStorage.getItem('auditai_biometria_credId');
+    if (!storedCredId) return;
+    setIsUnlockLoading(true);
+    setUnlockError(null);
+    try {
+      const credIdBuffer = base64urlToBuffer(storedCredId);
+      
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+
+      const assertionOptions: CredentialRequestOptions = {
+        publicKey: {
+          challenge: challenge,
+          allowCredentials: [{
+            id: credIdBuffer,
+            type: "public-key"
+          }],
+          userVerification: "required",
+          timeout: 60000
+        }
+      };
+
+      const assertion = await navigator.credentials.get(assertionOptions);
+      if (assertion) {
+        setIsUnlocked(true);
+        showToast("✓ Painel de controle desbloqueado!");
+      }
+    } catch (err: any) {
+      console.error('Erro de desbloqueio biométrico:', err);
+      setUnlockError('A validação biométrica falhou ou foi cancelada pelo usuário.');
+    } finally {
+      setIsUnlockLoading(false);
+    }
+  };
+
+  const handleLockSignOut = async () => {
+    try {
+      await auth.signOut();
+      setUser(null);
+      setIsAuthenticatedViaBiometric(false);
+      setIsUnlocked(false);
+      showToast("Sessão encerrada com sucesso.");
+    } catch (err: any) {
+      console.error("Erro ao deslogar:", err);
+    }
   };
 
   const isLoggedIn = user || isAuthenticatedViaBiometric;
@@ -328,9 +396,100 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <LoginGate
-        onAuthSuccess={(signedInUser) => setUser(signedInUser)}
-        onBiometricSuccess={() => setIsAuthenticatedViaBiometric(true)}
+        onAuthSuccess={(signedInUser) => {
+          setUser(signedInUser);
+          setIsUnlocked(true);
+        }}
+        onBiometricSuccess={() => {
+          setIsAuthenticatedViaBiometric(true);
+          setIsUnlocked(true);
+        }}
       />
+    );
+  }
+
+  const hasBiometricConfigured = typeof window !== 'undefined' && !!localStorage.getItem('auditai_biometria_credId');
+  const needsUnlockScreen = hasBiometricConfigured && !isUnlocked && !isAuthenticatedViaBiometric;
+
+  if (needsUnlockScreen) {
+    return (
+      <div className="min-h-screen w-full bg-[#070b13] flex items-center justify-center p-4">
+        {/* Background radial glow */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(6,182,212,0.04),transparent_50%)] pointer-events-none" />
+
+        <motion.div
+          initial={{ opacity: 0, y: 30, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="relative w-full max-w-md bg-[#0b1120] border border-slate-900/60 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] rounded-3xl p-8 sm:p-10 flex flex-col items-center text-center overflow-hidden"
+        >
+          {/* Top glowing line */}
+          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-500/40 to-transparent" />
+
+          {/* Logo */}
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/25 mb-6 relative">
+            <Fingerprint className="w-8 h-8" />
+            <div className="absolute inset-0 rounded-2xl bg-cyan-500/10 blur animate-pulse" />
+          </div>
+
+          {/* Title */}
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white mb-2 font-sans">
+            Sessão Bloqueada
+          </h2>
+          
+          {/* Subtitle */}
+          <p className="text-slate-400 text-xs sm:text-sm mb-8 leading-relaxed font-normal">
+            Sua sessão está ativa. Por segurança, verifique sua biometria para acessar o painel de controle.
+          </p>
+
+          {/* Error Display */}
+          <AnimatePresence mode="wait">
+            {unlockError && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="w-full bg-red-950/30 border border-red-500/20 rounded-2xl p-4 mb-6 text-left overflow-hidden"
+              >
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-bold text-red-200">Erro de Validação</h4>
+                    <p className="text-[11px] text-red-300/90 leading-relaxed font-normal">
+                      {unlockError}
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Unlock Actions */}
+          <div className="w-full space-y-4">
+            <button
+              onClick={handleUnlockBiometricSignIn}
+              disabled={isUnlockLoading}
+              className="w-full relative group transition-all duration-200 ease-in-out cursor-pointer hover:scale-[1.01] active:scale-[0.99] disabled:opacity-75 disabled:cursor-not-allowed"
+              aria-label="Desbloquear com biometria"
+            >
+              <div className="w-full bg-gradient-to-r from-cyan-650 to-blue-650 hover:from-cyan-600 hover:to-blue-600 border border-cyan-500/30 text-white rounded-xl py-3.5 px-4 flex items-center justify-center font-semibold text-xs uppercase tracking-wider transition-all shadow-md gap-3 shadow-cyan-950/20">
+                {isUnlockLoading ? (
+                  <Loader2 className="w-4 h-4 text-white animate-spin" />
+                ) : (
+                  <Fingerprint className="w-4 h-4 text-cyan-300 group-hover:scale-110 transition-transform" />
+                )}
+                <span>{isUnlockLoading ? 'Desbloqueando...' : 'Usar Biometria'}</span>
+              </div>
+            </button>
+
+            <button
+              onClick={handleLockSignOut}
+              className="text-slate-500 hover:text-slate-300 text-xs transition-colors underline decoration-slate-600 hover:decoration-slate-400 cursor-pointer block mx-auto bg-transparent border-0"
+            >
+              Trocar de conta / Sair
+            </button>
+          </div>
+        </motion.div>
+      </div>
     );
   }
 
