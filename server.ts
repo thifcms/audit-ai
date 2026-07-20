@@ -66,10 +66,107 @@ function getImageHash(base64Data: string): string {
   return crypto.createHash("md5").update(base64Clean).digest("hex");
 }
 
+async function parsePdfTextByPosition(fileBuffer: Buffer): Promise<string> {
+  const tStart = performance.now();
+  console.log("[parsePdfTextByPosition] Iniciando extração por posição (pdfjs-dist)...");
+  
+  try {
+    // Importação dinâmica para compatibilidade Node.js/ESM
+    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    
+    // Configura o PDF.js para rodar sem worker externo se possível ou usar o worker padrão
+    const loadingTask = pdfjsLib.getDocument({
+      data: new Uint8Array(fileBuffer),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableFontFace: true,
+      verbosity: 0
+    });
+
+    const pdf = await loadingTask.promise;
+    let fullText = "";
+    const numPages = pdf.numPages;
+
+    for (let i = 1; i <= numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      
+      // Mapeia itens com coordenadas X e Y
+      // transform[4] = x, transform[5] = y
+      const items = textContent.items.map((item: any) => ({
+        text: item.str,
+        x: item.transform[4],
+        y: item.transform[5],
+        width: item.width || 0
+      }));
+
+      if (items.length === 0) continue;
+
+      // Agrupa por Y com tolerância (2.5 pixels) para identificar linhas
+      const lines: { y: number; items: any[] }[] = [];
+      const tolerance = 2.5;
+
+      items.forEach(item => {
+        let foundLine = lines.find(line => Math.abs(line.y - item.y) < tolerance);
+        if (foundLine) {
+          foundLine.items.push(item);
+        } else {
+          lines.push({ y: item.y, items: [item] });
+        }
+      });
+
+      // Ordena as linhas de cima para baixo (Y decrescente em coordenadas PDF)
+      lines.sort((a, b) => b.y - a.y);
+
+      // Reconstrói o texto da página mantendo colunas aproximadas
+      let pageText = "";
+      lines.forEach(line => {
+        // Ordena itens da esquerda para a direita (X crescente)
+        line.items.sort((a, b) => a.x - b.x);
+        
+        let lineText = "";
+        for (let j = 0; j < line.items.length; j++) {
+          const current = line.items[j];
+          if (j > 0) {
+            const prev = line.items[j - 1];
+            // Calcula o espaço entre os itens para decidir se adiciona espaços extras (simulando colunas)
+            const gap = current.x - (prev.x + prev.width);
+            if (gap > 5) lineText += "    "; // Gap maior = provável coluna
+            else lineText += " ";
+          }
+          lineText += current.text;
+        }
+        pageText += lineText + "\n";
+      });
+
+      fullText += pageText + "\n";
+    }
+
+    const tEnd = performance.now();
+    console.log(`[parsePdfTextByPosition] Concluído com sucesso em ${(tEnd - tStart).toFixed(2)}ms. Total: ${fullText.length} chars.`);
+    return fullText;
+  } catch (err: any) {
+    console.error("[parsePdfTextByPosition] Erro na extração por posição:", err.message);
+    return "";
+  }
+}
+
 async function parsePdfText(fileBuffer: Buffer): Promise<string> {
   const tStart = performance.now();
   
-  // Tenta extração via pdftotext -layout (preserva colunas do Excel/Tabelas)
+  // MÉTODO 1: Extração por posição (pdf.js nativo) - PRINCIPAL
+  // Ideal para tabelas rotacionadas/Excel preservando layout sem dependência de binários
+  try {
+    const textByPos = await parsePdfTextByPosition(fileBuffer);
+    if (textByPos && textByPos.trim().length > 10) {
+      console.log(`[parsePdfText] Extração por posição foi bem-sucedida.`);
+      return textByPos;
+    }
+  } catch (err: any) {
+    console.warn("[parsePdfText] Falha no método de posição, tentando pdftotext...");
+  }
+
+  // MÉTODO 2: pdftotext -layout (Fallback 1)
   try {
     const result = spawnSync("pdftotext", ["-layout", "-", "-"], { 
       input: fileBuffer,
