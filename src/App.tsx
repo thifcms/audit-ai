@@ -217,24 +217,6 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
-  if (!authChecked) {
-    return (
-      <div className="min-h-screen bg-[#070b13] flex flex-col items-center justify-center">
-        <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mb-4" />
-        <p className="text-slate-400 text-xs font-mono tracking-widest uppercase">Verificando Credenciais...</p>
-      </div>
-    );
-  }
-
-  if (!isLoggedIn) {
-    return (
-      <LoginGate
-        onAuthSuccess={(signedInUser) => setUser(signedInUser)}
-        onBiometricSuccess={() => setIsAuthenticatedViaBiometric(true)}
-      />
-    );
-  }
-
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: any) => {
       // Prevent Chrome 67 and earlier from automatically showing the prompt
@@ -333,6 +315,24 @@ export default function App() {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
   };
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-[#070b13] flex flex-col items-center justify-center">
+        <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mb-4" />
+        <p className="text-slate-400 text-xs font-mono tracking-widest uppercase">Verificando Credenciais...</p>
+      </div>
+    );
+  }
+
+  if (!isLoggedIn) {
+    return (
+      <LoginGate
+        onAuthSuccess={(signedInUser) => setUser(signedInUser)}
+        onBiometricSuccess={() => setIsAuthenticatedViaBiometric(true)}
+      />
+    );
+  }
 
   // Re-calculate statistics summarizing reconciliationItems
   const calculateSummary = (items: PatientAuditItem[]): AuditSummary => {
