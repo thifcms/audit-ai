@@ -90,48 +90,73 @@ async function parsePdfTextByPosition(fileBuffer: Buffer): Promise<string> {
     for (let i = 1; i <= numPages; i++) {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
+      const rotate = page.rotate || 0; // 0, 90, 180, 270
       
-      // Mapeia itens com coordenadas X e Y
-      // transform[4] = x, transform[5] = y
-      const items = textContent.items.map((item: any) => ({
-        text: item.str,
-        x: item.transform[4],
-        y: item.transform[5],
-        width: item.width || 0
-      }));
+      // Mapeia itens com coordenadas normalizadas de acordo com a rotação
+      const items = textContent.items.map((item: any) => {
+        const x = item.transform[4];
+        const y = item.transform[5];
+        let vx, vy, vw, vh;
+
+        // Normaliza para coordenadas visuais (vx, vy)
+        if (rotate === 90) {
+          vx = y;
+          vy = -x;
+          vw = item.height || 0; // Largura visual é a altura do glifo
+        } else if (rotate === 180) {
+          vx = -x;
+          vy = -y;
+          vw = item.width || 0;
+        } else if (rotate === 270) {
+          vx = -y;
+          vy = x;
+          vw = item.height || 0;
+        } else {
+          vx = x;
+          vy = y;
+          vw = item.width || 0;
+        }
+
+        return {
+          text: item.str,
+          vx,
+          vy,
+          vw
+        };
+      });
 
       if (items.length === 0) continue;
 
-      // Agrupa por Y com tolerância (2.5 pixels) para identificar linhas
-      const lines: { y: number; items: any[] }[] = [];
+      // Agrupa por vy (coordenada vertical visual) com tolerância
+      const lines: { vy: number; items: any[] }[] = [];
       const tolerance = 2.5;
 
       items.forEach(item => {
-        let foundLine = lines.find(line => Math.abs(line.y - item.y) < tolerance);
+        let foundLine = lines.find(line => Math.abs(line.vy - item.vy) < tolerance);
         if (foundLine) {
           foundLine.items.push(item);
         } else {
-          lines.push({ y: item.y, items: [item] });
+          lines.push({ vy: item.vy, items: [item] });
         }
       });
 
-      // Ordena as linhas de cima para baixo (Y decrescente em coordenadas PDF)
-      lines.sort((a, b) => b.y - a.y);
+      // Ordena as linhas de cima para baixo (vy decrescente)
+      lines.sort((a, b) => b.vy - a.vy);
 
       // Reconstrói o texto da página mantendo colunas aproximadas
       let pageText = "";
       lines.forEach(line => {
-        // Ordena itens da esquerda para a direita (X crescente)
-        line.items.sort((a, b) => a.x - b.x);
+        // Ordena itens da esquerda para a direita (vx crescente)
+        line.items.sort((a, b) => a.vx - b.vx);
         
         let lineText = "";
         for (let j = 0; j < line.items.length; j++) {
           const current = line.items[j];
           if (j > 0) {
             const prev = line.items[j - 1];
-            // Calcula o espaço entre os itens para decidir se adiciona espaços extras (simulando colunas)
-            const gap = current.x - (prev.x + prev.width);
-            if (gap > 5) lineText += "    "; // Gap maior = provável coluna
+            // Calcula o espaço entre os itens para decidir se adiciona espaços extras
+            const gap = current.vx - (prev.vx + prev.vw);
+            if (gap > 5) lineText += "    "; 
             else lineText += " ";
           }
           lineText += current.text;
