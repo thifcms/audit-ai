@@ -2379,15 +2379,23 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       let pdfText = "";
       if (prompt) {
         try {
+          const tStartParse = performance.now();
           pdfText = await parsePdfText(fileBuffer);
-          console.log(`[DIAGNOSTIC PROMPT /public/extract] Text length: ${pdfText ? pdfText.length : 0}`);
-          if (pdfText) {
-            console.log(`[DIAGNOSTIC PROMPT /public/extract] First 1000 chars:\n${pdfText.substring(0, 1000)}`);
+          const tEndParse = performance.now();
+          console.log(`[PERFORMANCE] parsePdfText concluído em ${(tEndParse - tStartParse).toFixed(2)}ms. Text length: ${pdfText ? pdfText.length : 0}`);
+          
+          if (pdfText && pdfText.length > 0) {
+            console.log(`[DIAGNOSTIC /public/extract] Primeiros 500 chars:\n${pdfText.substring(0, 500)}`);
           }
           
-          // Tenta padrão local ORTTRAM se especificado no prompt
-          const isOrttramPrompt = prompt.toLowerCase().includes("medico cadastrado") || prompt.toLowerCase().includes("médico cadastrado");
+          // Tenta padrão local ORTTRAM se especificado no prompt ou tipo esperado
+          const isOrttramPrompt = (prompt || "").toLowerCase().includes("medico cadastrado") || 
+                                  (prompt || "").toLowerCase().includes("médico cadastrado") ||
+                                  expectedType === "orttram" ||
+                                  expectedType === "ORTTRAM";
+
           if (isOrttramPrompt) {
+            console.log(`[DIAGNOSTIC /public/extract] Tentando extração local ORTTRAM...`);
             const orttramResult = extractOrttramTable(pdfText, prompt);
             if (orttramResult && orttramResult.resultados && orttramResult.resultados.length > 0) {
               console.log(`[Direct Extraction] Formato ORTTRAM identificado localmente (${orttramResult.resultados.length} atendimentos únicos). Pulando Gemini.`);
