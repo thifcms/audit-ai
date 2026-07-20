@@ -157,8 +157,8 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
   const lines = pdfText.split("\n");
   const parsedRows: any[] = [];
   
-  const startRegex = /^(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/;
-  const endRegex = /\s+(\d{2}\/\d{2}\/\d{2,4})\s+(\d+)\s+(\d+)\s+R\$\s*([\d.,]+)\s+(\d+)\s+R\$\s*([\d.,]+)\s*$/i;
+  const startRegex = /^(\d+)\s+(\d+)\s+(\d+)\s+(?:(\d{6,10})\s+)?(.+)$/;
+  const endRegex = /\s+(\d{2}\/\d{2}\/\d{2,4})\s+(\d+)\s+(\d+)\s+R\$\s*([\d.,]+)\s*(?:([\d.,]+)%?\s+)?R\$\s*([\d.,]+)\s*$/i;
   
   for (const line of lines) {
     const trimmedLine = line.trim();
@@ -168,7 +168,7 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
     const remessa = startMatch[1];
     const conta = startMatch[2];
     const atendimento = startMatch[3];
-    const restOfLine = startMatch[4];
+    const restOfLine = startMatch[5];
     
     const normalizedRest = normalizeName(restOfLine);
     const docIdx = normalizedRest.indexOf(normalizedCadastrado);
