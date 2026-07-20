@@ -127,21 +127,28 @@ async function parsePdfTextByPosition(fileBuffer: Buffer): Promise<string> {
 
       if (items.length === 0) continue;
 
-      // Agrupa por vy (coordenada vertical visual) com tolerância
+      // OTIMIZAÇÃO: Agrupamento O(n log n)
+      // 1. Ordena todos os itens por vy (decrescente)
+      items.sort((a, b) => b.vy - a.vy);
+
       const lines: { vy: number; items: any[] }[] = [];
       const tolerance = 2.5;
 
-      items.forEach(item => {
-        let foundLine = lines.find(line => Math.abs(line.vy - item.vy) < tolerance);
-        if (foundLine) {
-          foundLine.items.push(item);
-        } else {
-          lines.push({ vy: item.vy, items: [item] });
-        }
-      });
+      // 2. Percorre uma única vez agrupando por proximidade de vy
+      if (items.length > 0) {
+        let currentLine = { vy: items[0].vy, items: [items[0]] };
+        lines.push(currentLine);
 
-      // Ordena as linhas de cima para baixo (vy decrescente)
-      lines.sort((a, b) => b.vy - a.vy);
+        for (let j = 1; j < items.length; j++) {
+          const item = items[j];
+          if (Math.abs(item.vy - currentLine.vy) < tolerance) {
+            currentLine.items.push(item);
+          } else {
+            currentLine = { vy: item.vy, items: [item] };
+            lines.push(currentLine);
+          }
+        }
+      }
 
       // Reconstrói o texto da página mantendo colunas aproximadas
       let pageText = "";
@@ -165,13 +172,16 @@ async function parsePdfTextByPosition(fileBuffer: Buffer): Promise<string> {
       });
 
       fullText += pageText + "\n";
+      if (i % 10 === 0 || i === numPages) {
+        console.log(`[parsePdfTextByPosition] Processadas ${i}/${numPages} páginas...`);
+      }
     }
 
     const tEnd = performance.now();
-    console.log(`[parsePdfTextByPosition] Concluído com sucesso em ${(tEnd - tStart).toFixed(2)}ms. Total: ${fullText.length} chars.`);
+    console.log(`[parsePdfTextByPosition] Concluído em ${(tEnd - tStart).toFixed(2)}ms. Total: ${fullText.length} chars.`);
     return fullText;
   } catch (err: any) {
-    console.error("[parsePdfTextByPosition] Erro na extração por posição:", err.message);
+    console.error("[parsePdfTextByPosition] Erro na extração:", err.message);
     return "";
   }
 }
