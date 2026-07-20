@@ -55,7 +55,12 @@ async function main() {
   }
 
   // 2. Clone the repository into temp_repo using the authenticated URL
-  const remoteUrl = "https://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@github.com/thifcms/audit-ai.git";
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    console.error("GITHUB_TOKEN environment variable is required.");
+    process.exit(1);
+  }
+  const remoteUrl = `https://${token}@github.com/thifcms/audit-ai.git`;
   console.log("Cloning remote repository into temp_repo...");
   const cloneResult = await runCommand(`git clone "${remoteUrl}" temp_repo`);
 
