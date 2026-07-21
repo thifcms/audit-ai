@@ -16,7 +16,7 @@ import ErrorBoundary from './ErrorBoundary';
 import { db, auth } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import LoginGate from './components/LoginGate';
-import { collection, addDoc, doc, setDoc, serverTimestamp, query, where, getDocs, deleteDoc } from 'firebase/firestore';
+import { collection, doc, serverTimestamp, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import {
   Search,
   Activity,
@@ -31,7 +31,6 @@ import {
   Trash2,
   Play,
   Download,
-  CloudLightning,
   Loader2,
   Calculator,
   FolderOpen,
@@ -285,8 +284,8 @@ export default function App() {
   const [hoveredDataPoint, setHoveredDataPoint] = useState<any>(null);
 
   // Firestore registration states
-  const [isRegisteringProdKeys, setIsRegisteringProdKeys] = useState(false);
-  const [prodKeysGenerated, setProdKeysGenerated] = useState(false);
+  // Estados isRegisteringProdKeys e prodKeysGenerated removidos junto com a 
+  // funcionalidade de exposição de chaves (correção de segurança).
   const [neuralHospitals, setNeuralHospitals] = useState<any[]>([]);
 
   // PWA Install State
@@ -352,37 +351,9 @@ export default function App() {
     }
   }, [activeTab]);
 
-  const handleRegisterKeysInProduction = async () => {
-    setIsRegisteringProdKeys(true);
-    try {
-      // Define exact generated keys
-      const keys = [
-        { key: "dk_admin_4c42b5f89cfa4988b81f07d624c16fd8", appId: "admin", appName: "Admin", role: "admin", active: true, createdAt: new Date(), lastUsedAt: null },
-        { key: "dk_app_398621514c374c1bbaee5c20d65f2a83", appId: "app1", appName: "Meu App 1", role: "app", active: true, createdAt: new Date(), lastUsedAt: null },
-        { key: "dk_app_9afda75222e940538b598d9564b693b8", appId: "app2", appName: "Meu App 2", role: "app", active: true, createdAt: new Date(), lastUsedAt: null }
-      ];
-
-      for (const k of keys) {
-        await addDoc(collection(db, "api_keys"), k);
-      }
-
-      // Create global metadata document in knowledge_base
-      await setDoc(doc(db, "knowledge_base", "global"), {
-        trainedAt: "builtin",
-        version: "1.0.0-builtin",
-        savedAt: new Date(),
-        note: "Base builtin — a IA já vem treinada para todos os tipos de documento."
-      });
-
-      setProdKeysGenerated(true);
-      showToast("Chaves de API e Regras Globais registradas com sucesso no Firestore de Produção!");
-    } catch (err: any) {
-      console.error(err);
-      showToast("Falha ao registrar chaves no Firestore: " + (err.message || err));
-    } finally {
-      setIsRegisteringProdKeys(false);
-    }
-  };
+  // Função handleRegisterKeysInProduction removida — expunha chaves de API em texto
+  // puro na tela (correção de segurança). As chaves já são configuradas via variáveis
+  // de ambiente do Render, não precisam ser escritas manualmente no Firestore.
 
   // Notification Toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -2119,53 +2090,8 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* PROD FIREBASE KEY REGISTERING CARD */}
-                  <div className="border-t border-slate-850 pt-5 space-y-4">
-                    <div className="flex items-center gap-2">
-                      <CloudLightning className="w-5 h-5 text-cyan-400" />
-                      <h3 className="text-sm font-bold text-slate-200">Gerador e Registrador de Chaves (Firestore Produção)</h3>
-                    </div>
-                    <div className="h-2" />
-
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        onClick={handleRegisterKeysInProduction}
-                        disabled={isRegisteringProdKeys}
-                        className="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 disabled:from-slate-850 disabled:to-slate-850 disabled:text-slate-500 text-white rounded-xl py-2.5 px-4 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-emerald-950/20"
-                      >
-                        {isRegisteringProdKeys ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin text-white" />
-                            <span>Registrando no Firestore...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-4 h-4 text-emerald-300 animate-pulse" />
-                            <span>Registrar Chaves & Regras no Firestore de Produção</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {prodKeysGenerated && (
-                      <div className="bg-slate-950/60 border border-emerald-500/20 rounded-2xl p-4 mt-3 space-y-3 font-mono text-xs">
-                        <div className="text-emerald-400 font-bold border-b border-emerald-500/10 pb-1.5 flex items-center gap-1.5 font-sans">
-                          <Check className="w-4 h-4 text-emerald-400" /> Chaves registradas com sucesso no Firestore!
-                        </div>
-                        <p className="text-slate-400 text-[10px] leading-relaxed font-sans font-normal">
-                          As seguintes credenciais foram criadas e salvas na coleção <code className="text-cyan-400 px-1 py-0.5 bg-[#0a0f1d] rounded">api_keys</code> e o motor de cognição foi semeado na coleção <code className="text-cyan-400 px-1 py-0.5 bg-[#0a0f1d] rounded">knowledge_base</code> do seu banco!
-                        </p>
-                        <div className="space-y-1.5 select-all">
-                          <div><span className="text-slate-500 font-sans font-normal">Admin Key:</span> <span className="text-slate-100 font-bold">dk_admin_4c42b5f89cfa4988b81f07d624c16fd8</span></div>
-                          <div><span className="text-slate-500 font-sans font-normal">App 1 (Meu App 1):</span> <span className="text-slate-100 font-bold">dk_app_398621514c374c1bbaee5c20d65f2a83</span></div>
-                          <div><span className="text-slate-500 font-sans font-normal">App 2 (Meu App 2):</span> <span className="text-slate-100 font-bold">dk_app_9afda75222e940538b598d9564b693b8</span></div>
-                        </div>
-                        <div className="bg-[#0b1322] p-2.5 rounded-xl text-[10px] font-sans text-slate-400 leading-normal font-normal">
-                          💡 Use o cabeçalho HTTP <strong className="text-cyan-400 font-bold">x-api-key</strong> com as credenciais acima para fazer chamadas seguras de APIs diretamente do seu aplicativo mobile ou web para a sua URL base de produção!
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  {/* Card de registro de chaves em produção removido — expunha chaves de 
+                      API em texto puro na tela (correção de segurança). */}
 
                   <div className="pt-4 border-t border-slate-850 flex justify-end gap-2">
                     <button
