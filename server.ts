@@ -1301,7 +1301,7 @@ async function startServer() {
     res.json({
       status: "ok",
       version: "2.0.0",
-      commit: "cf0d01c",
+      commit: "f80492c-schema-fix",
       name: "DocEngine API (V2) - AI Studio Hosted",
       timestamp: new Date().toISOString()
     });
@@ -1937,7 +1937,14 @@ async function startServer() {
           }
           
           // ORTTRAM Local Extraction logic (Parallel to /public/extract)
-          const isOrttramPrompt = prompt && (prompt.includes("ORTTRAM") || prompt.includes("RESUMO DE ATENDIMENTOS") || prompt.includes("RELATORIO DE FATURAMENTO"));
+          const isOrttramPrompt = (prompt || "").toLowerCase().includes("medico cadastrado") || 
+                                  (prompt || "").toLowerCase().includes("médico cadastrado") ||
+                                  (prompt || "").toLowerCase().includes("orttram") ||
+                                  (prompt || "").toLowerCase().includes("resumo de atendimentos") ||
+                                  (prompt || "").toLowerCase().includes("relatorio de faturamento") ||
+                                  expectedType === "orttram" ||
+                                  expectedType === "ORTTRAM";
+
           if (isOrttramPrompt) {
             console.log(`[DIAGNOSTIC /gemini/extract] Tentando extração local ORTTRAM...`);
             const orttramResult = extractOrttramTable(extractedText, prompt);
@@ -1946,6 +1953,7 @@ async function startServer() {
             await saveDebugLog({
               type: "orttram_diagnostic_gemini",
               filename,
+              prompt: JSON.stringify(prompt),
               resultsCount: orttramResult?.resultados?.length || 0,
               orttramResult: orttramResult ? {
                 totalRows: orttramResult.totalRows,
@@ -1960,7 +1968,8 @@ async function startServer() {
                 documentType: "etiqueta_hospitalar",
                 summary: `Extração local ORTTRAM realizada com sucesso (${orttramResult.resultados.length} registros).`,
                 data: {
-                  etiquetas: orttramResult.resultados
+                  etiquetas: orttramResult.resultados,
+                  resultados: orttramResult.resultados
                 },
                 diagnostic: orttramResult.diagnostic
               });
@@ -2516,6 +2525,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
                 usedModel: "N/A",
                 usedProvider: "local_pattern",
                 data: {
+                  etiquetas: orttramResult.resultados,
                   resultados: orttramResult.resultados
                 }
               });
