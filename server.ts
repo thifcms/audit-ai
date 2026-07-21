@@ -36,6 +36,38 @@ const MOCK_MODE = process.env.MOCK_MODE === 'true';
 // --- Init Firebase ---
 // Using modular SDK now inside db.js so no compat app init needed here.
 
+async function saveDebugLog(data: any) {
+  try {
+    const db = getDB();
+    await db.collection("debug_logs").add({
+      ...data,
+      timestamp: dbServerTimestamp()
+    });
+  } catch (err) {
+    console.error("[DEBUG LOG ERROR]", err);
+  }
+}
+
+// Get the last N debug logs
+app.get("/api/debug/logs", async (req, res) => {
+  try {
+    const limitVal = parseInt(req.query.limit as string) || 10;
+    const snap = await getDB().collection("debug_logs")
+      .orderBy("timestamp", "desc")
+      .limit(limitVal)
+      .get();
+    
+    const logs = snap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    res.json({ success: true, logs });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // --- Learning Incremental Helpers ---
 function withTimeout<T>(promise: Promise<T>, ms: number, fallbackValue: T): Promise<T> {
   let timeoutId: NodeJS.Timeout;
@@ -428,11 +460,20 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
   }
   
   console.log(`[ORTTRAM DIAGNOSTIC] Lines total: ${lines.length} | startRegex: ${debugStartMatchCount} | +docName: ${debugDocMatchCount} | +endRegex: ${debugEndMatchCount}`);
+  
+  const diagnosticInfo = {
+    linesTotal: lines.length,
+    startRegexMatches: debugStartMatchCount,
+    docNameMatches: debugDocMatchCount,
+    endRegexMatches: debugEndMatchCount,
+    normalizedCadastrado
+  };
+
   if (debugDocMatchCount > 0 && debugEndMatchCount === 0) {
     console.log(`[ORTTRAM DIAGNOSTIC] Failed suffix sample: "${firstFailedSuffix.substring(0, 500)}"`);
   }
   
-  if (parsedRows.length === 0) return null;
+  if (parsedRows.length === 0) return { resultados: [], totalRows: 0, diagnostic: diagnosticInfo };
   
   const promptUpper = prompt.toUpperCase();
   const hasClinicalTerm = promptUpper.includes("CLINICO");
@@ -440,9 +481,9 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
   
   let filteredRows = parsedRows;
   if (hasSurgicalTerm) {
-    filteredRows = parsedRows.filter(r => r.atividade !== "CLINICO");
+    filteredRows = parsedRows.filter(r => (r.atividade || "").toUpperCase() !== "CLINICO");
   } else if (hasClinicalTerm) {
-    filteredRows = parsedRows.filter(r => r.atividade === "CLINICO");
+    filteredRows = parsedRows.filter(r => (r.atividade || "").toUpperCase() === "CLINICO");
   }
   
   const groupedMap = new Map<string, any>();
@@ -461,13 +502,12 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
         nome_paciente: row.nome_paciente,
         numero_atendimento: row.numero_atendimento,
         valor: row.valor,
-        data_atendimento: row.data_atendimento
+        data_atendimento: row.data_atendimento,
+        atividade: row.atividade,
+        breakdown: {}
       };
-      if (hasSurgicalTerm) {
-        entry.breakdown = {};
-        if (activityKey) {
-          entry.breakdown[activityKey] = row.valor;
-        }
+      if (hasSurgicalTerm && activityKey) {
+        entry.breakdown[activityKey] = row.valor;
       }
       groupedMap.set(key, entry);
     }
@@ -483,7 +523,11 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
     }
   }
   
-  return { resultados };
+  return {
+    resultados,
+    totalRows: parsedRows.length,
+    diagnostic: diagnosticInfo
+  };
 }
 
 function extractWithLocalRegex(rawText: string, hospital: string): any {
@@ -2323,7 +2367,16 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
       const { fileBase64, filename, mimeType, expectedType, modelStrategy, prompt, schema } = req.body;
       
       console.log(`[RAW PROMPT DEBUG] Tamanho: ${(prompt || "").length} caracteres`);
-      console.log(`[RAW PROMPT DEBUG] Conteúdo (JSON.stringify para revelar caracteres invisíveis): ${JSON.stringify(prompt)}`);
+      const promptStringified = JSON.stringify(prompt);
+      console.log(`[RAW PROMPT DEBUG] Conteúdo (JSON.stringify): ${promptStringified}`);
+
+      // Save to Firestore debug_logs immediately
+      await saveDebugLog({
+        type: "raw_request",
+        filename,
+        prompt: promptStringified,
+        expectedType
+      });
 
       if (!fileBase64) {
         return res.status(400).json({ error: "O campo fileBase64 é obrigatório." });
@@ -2401,6 +2454,18 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
           if (isOrttramPrompt) {
             console.log(`[DIAGNOSTIC /public/extract] Tentando extração local ORTTRAM...`);
             const orttramResult = extractOrttramTable(pdfText, prompt);
+            
+            // Save diagnostic results to Firestore
+            await saveDebugLog({
+              type: "orttram_diagnostic",
+              filename,
+              resultsCount: orttramResult?.resultados?.length || 0,
+              orttramResult: orttramResult ? {
+                totalRows: orttramResult.totalRows,
+                diagnostic: orttramResult.diagnostic
+              } : null
+            });
+
             if (orttramResult && orttramResult.resultados && orttramResult.resultados.length > 0) {
               console.log(`[Direct Extraction] Formato ORTTRAM identificado localmente (${orttramResult.resultados.length} atendimentos únicos). Pulando Gemini.`);
               return res.status(200).json({
