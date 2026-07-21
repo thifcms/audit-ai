@@ -346,6 +346,7 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
     const remessa = startMatch[1];
     const conta = startMatch[2];
     const atendimento = startMatch[3];
+    const tussCode = startMatch[4] || null;
     const restOfLine = startMatch[5];
     
     const normalizedRest = normalizeName(restOfLine);
@@ -434,7 +435,8 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
       numero_atendimento: atendimento,
       valor: valorNum,
       data_atendimento: data,
-      atividade: atividade
+      atividade: atividade,
+      codigo_tuss: tussCode
     });
   }
   
