@@ -48,26 +48,6 @@ async function saveDebugLog(data: any) {
   }
 }
 
-// Get the last N debug logs
-app.get("/api/debug/logs", async (req, res) => {
-  try {
-    const limitVal = parseInt(req.query.limit as string) || 10;
-    const snap = await getDB().collection("debug_logs")
-      .orderBy("timestamp", "desc")
-      .limit(limitVal)
-      .get();
-    
-    const logs = snap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-    
-    res.json({ success: true, logs });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
 // --- Learning Incremental Helpers ---
 function withTimeout<T>(promise: Promise<T>, ms: number, fallbackValue: T): Promise<T> {
   let timeoutId: NodeJS.Timeout;
@@ -110,7 +90,6 @@ async function parsePdfTextByPosition(fileBuffer: Buffer): Promise<string> {
     const loadingTask = pdfjsLib.getDocument({
       data: new Uint8Array(fileBuffer),
       useWorkerFetch: false,
-      isEvalSupported: false,
       disableFontFace: true,
       verbosity: 0
     });
@@ -1293,6 +1272,26 @@ async function startServer() {
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "Accept", "Origin", "Access-Control-Allow-Origin"],
   }));
+
+  // Get the last N debug logs
+  app.get("/api/debug/logs", async (req, res) => {
+    try {
+      const limitVal = parseInt(req.query.limit as string) || 10;
+      const snap = await getDB().collection("debug_logs")
+        .orderBy("timestamp", "desc")
+        .limit(limitVal)
+        .get();
+      
+      const logs = snap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      res.json({ success: true, logs });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   // Body limits
   app.use(express.json({ limit: '500mb' }));
