@@ -1857,7 +1857,20 @@ async function startServer() {
   // Gemini Extraction Route (Protected now)
   apiRouter.post("/gemini/extract", async (req, res) => {
     try {
-      const { fileBase64, filename, mimeType, expectedType, modelStrategy } = req.body;
+      const { fileBase64, filename, mimeType, expectedType, modelStrategy, prompt } = req.body;
+
+      console.log(`[RAW PROMPT DEBUG /gemini/extract] Tamanho: ${(prompt || "").length} caracteres`);
+      const promptStringified = JSON.stringify(prompt);
+      console.log(`[RAW PROMPT DEBUG /gemini/extract] Conteúdo (JSON.stringify): ${promptStringified}`);
+
+      // Save to Firestore debug_logs immediately
+      await saveDebugLog({
+        type: "raw_request_gemini",
+        filename,
+        prompt: promptStringified,
+        expectedType
+      });
+
       if (!fileBase64) {
         return res.status(400).json({ error: "O campo fileBase64 é obrigatório." });
       }
@@ -1921,6 +1934,37 @@ async function startServer() {
           console.log(`[DIAGNOSTIC BASE /gemini/extract] Text length: ${extractedText ? extractedText.length : 0}`);
           if (extractedText) {
             console.log(`[DIAGNOSTIC BASE /gemini/extract] First 1000 chars:\n${extractedText.substring(0, 1000)}`);
+          }
+          
+          // ORTTRAM Local Extraction logic (Parallel to /public/extract)
+          const isOrttramPrompt = prompt && (prompt.includes("ORTTRAM") || prompt.includes("RESUMO DE ATENDIMENTOS") || prompt.includes("RELATORIO DE FATURAMENTO"));
+          if (isOrttramPrompt) {
+            console.log(`[DIAGNOSTIC /gemini/extract] Tentando extração local ORTTRAM...`);
+            const orttramResult = extractOrttramTable(extractedText, prompt);
+
+            // Save diagnostic results to Firestore
+            await saveDebugLog({
+              type: "orttram_diagnostic_gemini",
+              filename,
+              resultsCount: orttramResult?.resultados?.length || 0,
+              orttramResult: orttramResult ? {
+                totalRows: orttramResult.totalRows,
+                diagnostic: orttramResult.diagnostic
+              } : null
+            });
+
+            if (orttramResult && orttramResult.resultados && orttramResult.resultados.length > 0) {
+              console.log(`[Direct Extraction Gemini] Formato ORTTRAM identificado localmente (${orttramResult.resultados.length} atendimentos únicos). Pulando Gemini.`);
+              return res.status(200).json({
+                success: true,
+                documentType: "etiqueta_hospitalar",
+                summary: `Extração local ORTTRAM realizada com sucesso (${orttramResult.resultados.length} registros).`,
+                data: {
+                  etiquetas: orttramResult.resultados
+                },
+                diagnostic: orttramResult.diagnostic
+              });
+            }
           }
         } else {
           const TesseractModule = await import("tesseract.js") as any;
