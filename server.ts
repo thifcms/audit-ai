@@ -2321,6 +2321,10 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
   app.post("/public/extract", async (req, res) => {
     try {
       const { fileBase64, filename, mimeType, expectedType, modelStrategy, prompt, schema } = req.body;
+      
+      console.log(`[RAW PROMPT DEBUG] Tamanho: ${(prompt || "").length} caracteres`);
+      console.log(`[RAW PROMPT DEBUG] Conteúdo (JSON.stringify para revelar caracteres invisíveis): ${JSON.stringify(prompt)}`);
+
       if (!fileBase64) {
         return res.status(400).json({ error: "O campo fileBase64 é obrigatório." });
       }
