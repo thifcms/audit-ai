@@ -1301,6 +1301,7 @@ async function startServer() {
     res.json({
       status: "ok",
       version: "2.0.0",
+      commit: "cf0d01c",
       name: "DocEngine API (V2) - AI Studio Hosted",
       timestamp: new Date().toISOString()
     });
