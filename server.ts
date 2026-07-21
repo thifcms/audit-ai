@@ -454,15 +454,14 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
   
   if (parsedRows.length === 0) return { resultados: [], totalRows: 0, diagnostic: diagnosticInfo };
   
-  const promptUpper = prompt.toUpperCase();
-  const hasClinicalTerm = promptUpper.includes("CLINICO");
-  const hasSurgicalTerm = promptUpper.includes("CIRURGICO") || promptUpper.includes("CIRURGIAO") || promptUpper.includes("AUXILIAR") || promptUpper.includes("DIFERENTE");
+  const wantsOnlyClinico = /APENAS OS REGISTROS ONDE.*CLINICO|SOMENTE CLINICO|ATIVIDADE.*SEJA.*CLINICO/i.test(prompt);
+  const wantsOnlySurgical = /APENAS.*CIRURGICO|SOMENTE CIRURGICO/i.test(prompt) && !wantsOnlyClinico;
   
   let filteredRows = parsedRows;
-  if (hasSurgicalTerm) {
-    filteredRows = parsedRows.filter(r => (r.atividade || "").toUpperCase() !== "CLINICO");
-  } else if (hasClinicalTerm) {
+  if (wantsOnlyClinico) {
     filteredRows = parsedRows.filter(r => (r.atividade || "").toUpperCase() === "CLINICO");
+  } else if (wantsOnlySurgical) {
+    filteredRows = parsedRows.filter(r => (r.atividade || "").toUpperCase() !== "CLINICO");
   }
   
   const groupedMap = new Map<string, any>();
@@ -473,7 +472,7 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
     if (groupedMap.has(key)) {
       const existing = groupedMap.get(key);
       existing.valor += row.valor;
-      if (hasSurgicalTerm && activityKey) {
+      if (!wantsOnlyClinico && activityKey) {
         existing.breakdown[activityKey] = (existing.breakdown[activityKey] || 0) + row.valor;
       }
     } else {
@@ -485,7 +484,7 @@ function extractOrttramTable(pdfText: string, prompt: string): any {
         atividade: row.atividade,
         breakdown: {}
       };
-      if (hasSurgicalTerm && activityKey) {
+      if (!wantsOnlyClinico && activityKey) {
         entry.breakdown[activityKey] = row.valor;
       }
       groupedMap.set(key, entry);
@@ -2527,21 +2526,17 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
           if (localTable && localTable.rows && localTable.rows.length > 0) {
             console.log(`[Direct Extraction] Formato SOULMV identificado localmente (${localTable.rows.length} registros). Pulando Gemini.`);
             
-            // Filter by activity based on prompt intent
-            const promptUpper = (prompt || "").toUpperCase();
-            const hasClinicalTerm = promptUpper.includes("CLINICO");
-            const hasSurgicalTerm = promptUpper.includes("CIRURGICO") || promptUpper.includes("CIRURGIAO") || promptUpper.includes("AUXILIAR") || promptUpper.includes("DIFERENTE");
+            // Filter by activity based on prompt intent - ROBUST REGEX
+            const wantsOnlyClinico = /APENAS OS REGISTROS ONDE.*CLINICO|SOMENTE CLINICO|ATIVIDADE.*SEJA.*CLINICO/i.test(prompt || "");
+            const wantsOnlySurgical = /APENAS.*CIRURGICO|SOMENTE CIRURGICO/i.test(prompt || "") && !wantsOnlyClinico;
 
             let filteredRows = localTable.rows;
-            // Se tem termos cirúrgicos ou diz "DIFERENTE", assume modo Cirúrgico (Não-Clínico)
-            if (hasSurgicalTerm) {
-              console.log("[Direct Extraction] Modo detectado: CIRÚRGICO (Não-Clínico)");
-              filteredRows = localTable.rows.filter(r => (r.Atividade || "").toUpperCase() !== "CLINICO");
-            } 
-            // Se não tem termos cirúrgicos mas tem "CLINICO", assume modo Clínico
-            else if (hasClinicalTerm) {
-              console.log("[Direct Extraction] Modo detectado: CLÍNICO");
+            if (wantsOnlyClinico) {
+              console.log("[Direct Extraction] Modo detectado: CLÍNICO (Regex)");
               filteredRows = localTable.rows.filter(r => (r.Atividade || "").toUpperCase() === "CLINICO");
+            } else if (wantsOnlySurgical) {
+              console.log("[Direct Extraction] Modo detectado: CIRÚRGICO (Regex)");
+              filteredRows = localTable.rows.filter(r => (r.Atividade || "").toUpperCase() !== "CLINICO");
             }
 
             // Map to unified schema: { resultados: [{ nome_paciente, numero_atendimento, valor, data_atendimento, atividade }] }
@@ -2560,7 +2555,7 @@ Schema estruturado obrigatório (inclua *_confidence de 0-100):
             });
 
             let resultadosFinais = mappedResultados;
-            if (hasSurgicalTerm) {
+            if (!wantsOnlyClinico) {
               const groupedMap = new Map();
               for (const row of mappedResultados) {
                 const key = row.numero_atendimento;
