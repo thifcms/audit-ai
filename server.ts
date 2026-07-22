@@ -1821,7 +1821,7 @@ async function startServer() {
   apiRouter.post("/learning/format-candidates/:id/review", async (req, res) => {
     try {
       const { id } = req.params;
-      const { approved, reviewedBy } = req.body;
+      const { approved, reviewedBy, correctedSample } = req.body;
 
       if (approved === undefined) {
         return res.status(400).json({ error: "O campo approved é obrigatório." });
@@ -1841,6 +1841,13 @@ async function startServer() {
 
       if (reviewedBy !== undefined) {
         updateData.reviewedBy = reviewedBy;
+      }
+
+      // Se o usuário removeu registros incorretos da amostra antes de revisar,
+      // salva a lista já curada — reflete o que ele realmente confirmou como certo.
+      if (Array.isArray(correctedSample)) {
+        updateData.resultadosSample = correctedSample;
+        updateData.sampleWasEdited = true;
       }
 
       await docRef.update(updateData);
